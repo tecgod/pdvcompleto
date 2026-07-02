@@ -137,6 +137,7 @@
   .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;}
   .badge-low{background:var(--warn-soft);color:var(--warn);}
   .badge-ok{background:var(--accent-soft);color:var(--accent-dark);}
+  .badge-service{background:#E6ECFB;color:#2B4A9E;}
   .badge-open{background:var(--accent-soft);color:var(--accent-dark);}
   .badge-closed{background:var(--danger-soft);color:var(--danger);}
   .diff-pos{color:var(--accent-dark);font-weight:700;}
@@ -867,7 +868,7 @@ async function applyImportedSaleToStock(sale){
   if(!sale || !sale.id || await isSaleStockApplied(sale.id)) return;
   (sale.items || []).forEach(it=>{
     const p = products.find(x=>String(x.id)===String(it.productId));
-    if(p) p.stock = Math.max(0, (Number(p.stock)||0) - (Number(it.qty)||0));
+    if(p && !p.isService) p.stock = Math.max(0, (Number(p.stock)||0) - (Number(it.qty)||0));
   });
   await markSaleStockApplied(sale.id);
   await saveProducts();
@@ -887,6 +888,7 @@ function mergeProductsFromRemote(remoteProducts){
       cost: Number(rp.cost)||0,
       stock: Number(rp.stock)||0,
       minStock: Number(rp.minStock)||0,
+      isService: !!rp.isService,
       updatedAt: rp.updatedAt || ''
     };
     if(!local){ products.push(cleanRemote); changed = true; return; }
@@ -898,6 +900,7 @@ function mergeProductsFromRemote(remoteProducts){
       local.price = cleanRemote.price;
       local.cost = cleanRemote.cost;
       local.minStock = cleanRemote.minStock;
+      local.isService = cleanRemote.isService;
       local.updatedAt = cleanRemote.updatedAt;
       changed = true;
     }
@@ -1437,19 +1440,19 @@ function renderProductGrid(){
     return;
   }
 
-  const available = list.filter(p=>Number(p.stock||0)>0).length;
+  const available = list.filter(p=>p.isService || Number(p.stock||0)>0).length;
   const title = isKeyword
     ? `Resultado da busca por "%${escapeHtml(term.toLocaleUpperCase('pt-BR'))}" — ${list.length} encontrado(s)`
     : `Resultado da pesquisa — ${list.length} encontrado(s)`;
 
   grid.innerHTML = `<div class="sale-result-title">${title}${available===0?' · sem estoque disponível':''}</div>` + list.map(p=>{
-    const low = Number(p.stock||0) <= Number(p.minStock||0);
-    const out = Number(p.stock||0) <= 0;
+    const low = !p.isService && Number(p.stock||0) <= Number(p.minStock||0);
+    const out = !p.isService && Number(p.stock||0) <= 0;
     return `<button class="product-tile ${out?'disabled':''}" data-id="${p.id}" ${out?'disabled':''}>
       <div class="pname">${escapeHtml(p.name)}</div>
       ${p.code?`<div style="font-size:10.5px;color:var(--ink-soft);font-family:'JetBrains Mono',monospace;margin-bottom:4px;">#${escapeHtml(p.code)}</div>`:''}
       <div class="pprice">${fmt(p.price)}</div>
-      <div class="pstock ${low?'low':''}">${out?'Sem estoque': (p.stock+' em estoque')}</div>
+      <div class="pstock ${low?'low':''}">${p.isService ? 'Serviço' : (out?'Sem estoque': (p.stock+' em estoque'))}</div>
     </button>`;
   }).join('');
 
@@ -1465,7 +1468,7 @@ function addQtyToCart(productId, qty){
   if(!p) return false;
   const existing = cart.find(c=>c.productId===productId);
   const currentQty = existing ? existing.qty : 0;
-  if(currentQty + qty > p.stock){
+  if(!p.isService && currentQty + qty > p.stock){
     showToast('Estoque insuficiente para '+p.name+' (disponível: '+(p.stock-currentQty)+')');
     return false;
   }
@@ -1482,18 +1485,18 @@ function addToCart(productId){
 function openQuantityModal(productId){
   const p = products.find(x=>x.id===productId);
   if(!p) return;
-  if(p.stock<=0){ showToast('Produto sem estoque'); return; }
+  if(!p.isService && p.stock<=0){ showToast('Produto sem estoque'); return; }
   const existing = cart.find(c=>c.productId===productId);
   const already = existing ? existing.qty : 0;
-  const maxQty = p.stock - already;
-  if(maxQty<=0){ showToast('Estoque insuficiente para '+p.name); return; }
+  const maxQty = p.isService ? 99999 : (p.stock - already);
+  if(!p.isService && maxQty<=0){ showToast('Estoque insuficiente para '+p.name); return; }
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal" style="max-width:320px;">
       <h3>${escapeHtml(p.name)}</h3>
-      <div class="helper-text" style="margin-top:-6px;">${fmt(p.price)} un. · disponível: ${maxQty}</div>
+      <div class="helper-text" style="margin-top:-6px;">${fmt(p.price)} un. · disponível: ${p.isService ? 'ilimitado (serviço)' : maxQty}</div>
       <div class="field" style="margin-top:14px;">
         <label>Quantidade</label>
         <input id="qtyModalInput" type="number" min="1" max="${maxQty}" step="1" value="1">
@@ -1509,7 +1512,7 @@ function openQuantityModal(productId){
   const confirm = ()=>{
     let qty = parseInt(input.value, 10);
     if(isNaN(qty) || qty<=0){ showToast('Informe uma quantidade válida'); input.focus(); return; }
-    if(qty>maxQty){ showToast('Estoque insuficiente para '+p.name+' (disponível: '+maxQty+')'); input.focus(); input.select(); return; }
+    if(!p.isService && qty>maxQty){ showToast('Estoque insuficiente para '+p.name+' (disponível: '+maxQty+')'); input.focus(); input.select(); return; }
     const ok = addQtyToCart(productId, qty);
     if(ok){
       document.getElementById('searchProduct').value = '';
@@ -1534,7 +1537,7 @@ function changeQty(productId, delta){
   const newQty = item.qty + delta;
   if(newQty <= 0){
     cart = cart.filter(c=>c.productId!==productId);
-  } else if(p && newQty > p.stock){
+  } else if(p && !p.isService && newQty > p.stock){
     showToast('Estoque insuficiente');
   } else {
     item.qty = newQty;
@@ -1775,7 +1778,7 @@ document.getElementById('searchProduct').addEventListener('keydown', (e)=>{
     return;
   }
   const rawList = getFilteredProducts();
-  const list = rawList.filter(p=>Number(p.stock||0)>0);
+  const list = rawList.filter(p=>p.isService || Number(p.stock||0)>0);
   if(list.length===0){
     if(rawList.length>0){
       showToast('Produto encontrado, mas sem estoque. Atualize o estoque no cadastro rápido/edição.');
@@ -1932,7 +1935,7 @@ document.getElementById('finalizeSaleBtn').addEventListener('click', async ()=>{
   // decrement stock
   cart.forEach(c=>{
     const p = products.find(x=>x.id===c.productId);
-    if(p) p.stock = Math.max(0, (Number(p.stock)||0) - c.qty);
+    if(p && !p.isService) p.stock = Math.max(0, (Number(p.stock)||0) - c.qty);
   });
   await saveProducts();
 
@@ -2014,14 +2017,14 @@ function renderProductsTable(){
   }
   emptyEl.style.display='none';
   body.innerHTML = products.map(p=>{
-    const low = p.stock <= p.minStock;
+    const low = !p.isService && p.stock <= p.minStock;
     return `<tr>
       <td>${escapeHtml(p.name)}</td>
       <td>${escapeHtml(p.code||'—')}</td>
       <td>${escapeHtml(p.category||'—')}</td>
       <td class="num">${fmt(p.price)}</td>
-      <td class="num">${p.stock}</td>
-      <td>${low?'<span class="badge badge-low">Estoque baixo</span>':'<span class="badge badge-ok">OK</span>'}</td>
+      <td class="num">${p.isService ? '∞' : p.stock}</td>
+      <td>${p.isService ? '<span class="badge badge-service">Serviço</span>' : (low?'<span class="badge badge-low">Estoque baixo</span>':'<span class="badge badge-ok">OK</span>')}</td>
       <td>
         <div class="row-actions">
           <button class="btn btn-ghost btn-sm" data-act="edit" data-id="${p.id}">Editar</button>
@@ -2083,9 +2086,15 @@ function openProductModal(id, options={}){
         <div class="field"><label>Preço de venda (R$)</label><input id="mPrice" type="number" step="0.01" min="0" value="${editing?editing.price:''}"></div>
         <div class="field"><label>Custo (opcional, R$)</label><input id="mCost" type="number" step="0.01" min="0" value="${editing&&editing.cost?editing.cost:''}"></div>
       </div>
-      <div class="field-row">
-        <div class="field"><label>Estoque atual</label><input id="mStock" type="number" step="1" min="0" value="${editing?editing.stock:0}"></div>
-        <div class="field"><label>Estoque mínimo (alerta)</label><input id="mMinStock" type="number" step="1" min="0" value="${editing?editing.minStock:5}"></div>
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:2px 0 14px;">
+        <input type="checkbox" id="mIsService" style="width:auto;" ${editing&&editing.isService?'checked':''}>
+        <span style="font-weight:600; font-size:13px; color:var(--ink);">É um serviço (sem controle de estoque, quantidade ilimitada)</span>
+      </label>
+      <div id="mStockFields">
+        <div class="field-row">
+          <div class="field"><label>Estoque atual</label><input id="mStock" type="number" step="1" min="0" value="${editing?editing.stock:0}"></div>
+          <div class="field"><label>Estoque mínimo (alerta)</label><input id="mMinStock" type="number" step="1" min="0" value="${editing?editing.minStock:5}"></div>
+        </div>
       </div>
       <div style="display:flex; gap:8px; margin-top:8px;">
         <button class="btn btn-ghost btn-block" id="mCancel">Fechar</button>
@@ -2099,6 +2108,19 @@ function openProductModal(id, options={}){
   // Isso evita perder o preenchimento ao selecionar/apagar texto e soltar o mouse fora do campo.
   const productFieldOrder = ['mName','mCode','mCategory','mPrice','mCost','mStock','mMinStock'];
   installEnterFlow(overlay, productFieldOrder, ()=>document.getElementById('mSave').click());
+
+  const isServiceCheckbox = document.getElementById('mIsService');
+  const stockFieldsWrap = document.getElementById('mStockFields');
+  function applyServiceFieldState(){
+    const isService = isServiceCheckbox.checked;
+    stockFieldsWrap.style.display = isService ? 'none' : '';
+    if(isService){
+      document.getElementById('mStock').value = 0;
+      document.getElementById('mMinStock').value = 0;
+    }
+  }
+  isServiceCheckbox.addEventListener('change', applyServiceFieldState);
+  applyServiceFieldState();
 
   const newCatBtn = document.getElementById('mNewCategoryBtn');
   if(newCatBtn) newCatBtn.onclick = async ()=>{
@@ -2123,6 +2145,7 @@ function openProductModal(id, options={}){
     const minEl = document.getElementById('mMinStock');
     if(stockEl) stockEl.value = '0';
     if(minEl) minEl.value = '5';
+    if(isServiceCheckbox){ isServiceCheckbox.checked = false; applyServiceFieldState(); }
     const catEl = document.getElementById('mCategory');
     if(catEl && savedCategory) catEl.value = savedCategory;
     requestAnimationFrame(()=>focusAndSelect(document.getElementById('mName')));
@@ -2137,14 +2160,15 @@ function openProductModal(id, options={}){
     const code = document.getElementById('mCode').value.trim();
     const category = document.getElementById('mCategory').value.trim();
     const cost = parseFloat(document.getElementById('mCost').value);
-    const stock = parseInt(document.getElementById('mStock').value) || 0;
-    const minStock = parseInt(document.getElementById('mMinStock').value) || 0;
+    const isService = document.getElementById('mIsService').checked;
+    const stock = isService ? 0 : (parseInt(document.getElementById('mStock').value) || 0);
+    const minStock = isService ? 0 : (parseInt(document.getElementById('mMinStock').value) || 0);
     let savedProduct;
     if(editing){
-      Object.assign(editing, {name, code, category, price, cost: isNaN(cost)?0:cost, stock, minStock, updatedAt: nowStamp()});
+      Object.assign(editing, {name, code, category, price, cost: isNaN(cost)?0:cost, stock, minStock, isService, updatedAt: nowStamp()});
       savedProduct = editing;
     } else {
-      savedProduct = {id: uid(), name, code, category, price, cost: isNaN(cost)?0:cost, stock, minStock, updatedAt: nowStamp()};
+      savedProduct = {id: uid(), name, code, category, price, cost: isNaN(cost)?0:cost, stock, minStock, isService, updatedAt: nowStamp()};
       products.push(savedProduct);
     }
     await saveProducts();
@@ -2165,7 +2189,7 @@ function openProductModal(id, options={}){
       if(searchEl) searchEl.value = savedProduct.name;
       renderProductGrid();
       showToast('Produto cadastrado — pronto para vender');
-      if(savedProduct.stock > 0){
+      if(savedProduct.isService || savedProduct.stock > 0){
         setTimeout(()=>openQuantityModal(savedProduct.id), 80);
       } else if(searchEl){
         searchEl.focus();
@@ -2561,13 +2585,13 @@ async function runReport(options={}){
 
     const stockBody = document.getElementById('repStockBody');
     stockBody.innerHTML = products.length ? products.map(p=>{
-      const low = (Number(p.stock)||0) <= (Number(p.minStock)||0);
+      const low = !p.isService && (Number(p.stock)||0) <= (Number(p.minStock)||0);
       return `<tr>
         <td>${escapeHtml(p.name)}</td>
-        <td class="num">${Number(p.stock)||0}</td>
-        <td class="num">${Number(p.minStock)||0}</td>
-        <td class="num">${fmt((Number(p.stock)||0) * (Number(p.price)||0))}</td>
-        <td>${low?'<span class="badge badge-low">Baixo</span>':'<span class="badge badge-ok">OK</span>'}</td>
+        <td class="num">${p.isService ? '∞' : (Number(p.stock)||0)}</td>
+        <td class="num">${p.isService ? '—' : (Number(p.minStock)||0)}</td>
+        <td class="num">${p.isService ? '—' : fmt((Number(p.stock)||0) * (Number(p.price)||0))}</td>
+        <td>${p.isService ? '<span class="badge badge-service">Serviço</span>' : (low?'<span class="badge badge-low">Baixo</span>':'<span class="badge badge-ok">OK</span>')}</td>
       </tr>`;
     }).join('') : `<tr><td colspan="5" style="color:var(--ink-soft);">Nenhum produto cadastrado.</td></tr>`;
   }catch(err){
@@ -2685,7 +2709,7 @@ function retiradasHeaders_() {
   return ['Data','Hora','ID','Descrição','Forma','Valor','Atualizado Em'];
 }
 function produtosHeaders_() {
-  return ['ID','Nome','Código','Categoria','Preço','Custo','Estoque','Estoque Mínimo','Atualizado Em'];
+  return ['ID','Nome','Código','Categoria','Preço','Custo','Estoque','Estoque Mínimo','Tipo','Atualizado Em'];
 }
 function caixaHeaders_() {
   return ['Data','ID Sessão','Hora Abertura','Valor Abertura','Obs. Abertura','Hora Fechamento','Dinheiro Esperado','Dinheiro Contado','Diferença Dinheiro','Pix Esperado','Pix Contado','Diferença Pix','Débito Esperado','Débito Contado','Diferença Débito','Crédito Esperado','Crédito Contado','Diferença Crédito','Diferença Total','Obs. Fechamento','Status','Atualizado Em'];
@@ -2792,7 +2816,7 @@ function syncProdutos_(ss, products) {
   var sheet = getOrCreateSheet_(ss, 'Produtos', produtosHeaders_());
   if (sheet.getLastRow() > 1) sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).clearContent();
   var rows = (products || []).map(function (p) {
-    return [p.id, p.name, p.code || '', p.category || '', p.price || 0, p.cost || 0, p.stock || 0, p.minStock || 0, p.updatedAt || ''];
+    return [p.id, p.name, p.code || '', p.category || '', p.price || 0, p.cost || 0, p.stock || 0, p.minStock || 0, p.isService ? 'Serviço' : 'Produto', p.updatedAt || ''];
   });
   if (rows.length) sheet.getRange(2, 1, rows.length, produtosHeaders_().length).setValues(rows);
 }
@@ -2817,6 +2841,7 @@ function readProdutos_(ss) {
       cost: Number(r[map['Custo']]) || 0,
       stock: Number(r[map['Estoque']]) || 0,
       minStock: Number(r[map['Estoque Mínimo']]) || 0,
+      isService: String(r[map['Tipo']] || '') === 'Serviço',
       updatedAt: String(r[map['Atualizado Em']] || '')
     };
   }).filter(function (p) { return p.id; });
