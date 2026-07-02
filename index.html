@@ -77,8 +77,22 @@
   .field{margin-bottom:14px;}
   .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   /* Product grid (sales) */
-  .search-row{margin-bottom:16px;}
+  .search-row{margin-bottom:16px;display:flex;gap:8px;align-items:center;}
+  .search-row input{flex:1;min-width:0;}
+  .quick-sale-btn{width:auto;flex-shrink:0;padding:8px 10px;font-size:12px;border-style:dashed;opacity:.78;}
+  .quick-sale-btn:hover{opacity:1;}
+  .quick-product-actions{display:none;}
+  .quick-product-card{grid-column:1/-1;background:transparent;border:1px dashed var(--line);border-radius:10px;padding:12px;text-align:left;color:var(--ink-soft);font-size:12.5px;}
+  .quick-product-card strong{display:block;color:var(--ink);font-size:13px;margin-bottom:3px;}
+  .quick-product-card .btn{margin-top:8px;}
   .product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;}
+  .sales-main{max-width:820px;margin:0 auto;}
+  .sales-card{position:relative;}
+  .sale-search-panel{margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line);}
+  .sale-search-help{margin-top:-8px;margin-bottom:10px;}
+  .sale-results-grid{margin-bottom:12px;}
+  .sale-results-grid:empty{display:none;}
+  .sale-result-title{grid-column:1/-1;font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.4px;margin:2px 0 -4px;}
   .product-tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:13px;cursor:pointer;text-align:left;transition:border-color .12s, transform .05s;}
   .product-tile:hover{border-color:var(--accent);}
   .product-tile:active{transform:scale(.97);}
@@ -280,15 +294,18 @@
 
       <!-- VENDAS -->
       <div class="view active" id="view-vendas">
-        <div class="grid-2">
-          <div>
-            <div class="search-row">
-              <input type="text" id="searchProduct" class="force-uppercase" placeholder="Buscar por nome ou código do produto...">
-            </div>
-            <div id="productGrid" class="product-grid"></div>
-          </div>
-          <div class="card card-pad" style="position:sticky; top:78px;">
+        <div class="sales-main">
+          <div class="card card-pad sales-card">
             <div class="section-title"><h2>Venda atual</h2><button class="btn btn-ghost btn-sm" id="clearCartBtn">Limpar</button></div>
+            <div class="sale-search-panel">
+              <label>Pesquisar produto</label>
+              <div class="search-row sale-search-row">
+                <input type="text" id="searchProduct" class="force-uppercase" placeholder="Digite nome, código ou use %PALAVRA para listar relacionados...">
+                <button type="button" class="btn btn-ghost btn-sm quick-sale-btn" id="quickProductBtn" title="Cadastrar produto rápido sem sair da venda">+ Produto</button>
+              </div>
+              <div class="helper-text sale-search-help">Use <b>%</b> antes da palavra para listar todos os produtos que contenham essa parte do nome. Ex: <b>%VEDA</b>.</div>
+              <div id="productGrid" class="product-grid sale-results-grid"></div>
+            </div>
             <label>Tipo de venda</label>
             <div class="pay-methods" id="saleTypeMethods" style="margin-bottom:10px;">
               <button class="pay-btn selected" data-sale-type="balcao">🧍 Balcão</button>
@@ -601,6 +618,35 @@ document.addEventListener('change', (e)=>{
   if(!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
   forceUppercaseValue(el);
 }, true);
+
+/* ---------- Navegação por ENTER entre campos ---------- */
+function focusAndSelect(el){
+  if(!el) return;
+  el.focus();
+  if(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement){
+    try{ el.select(); }catch(e){}
+  }
+}
+function focusNextInOrder(order, currentId, fallbackSubmit){
+  const currentIndex = order.indexOf(currentId);
+  if(currentIndex < 0) return false;
+  for(let i=currentIndex+1; i<order.length; i++){
+    const next = document.getElementById(order[i]);
+    if(next && !next.disabled && next.offsetParent !== null){ focusAndSelect(next); return true; }
+  }
+  if(typeof fallbackSubmit === 'function') fallbackSubmit();
+  return true;
+}
+function installEnterFlow(scope, order, fallbackSubmit){
+  if(!scope) return;
+  scope.addEventListener('keydown', (e)=>{
+    if(e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey) return;
+    const target = e.target;
+    if(!target || !order.includes(target.id)) return;
+    e.preventDefault();
+    focusNextInOrder(order, target.id, fallbackSubmit);
+  });
+}
 
 const LOCAL_STORAGE_PREFIX = 'pdv3:';
 
@@ -977,32 +1023,72 @@ if(toggleRegisterBtn){
 }
 
 /* ---------- VENDAS (PDV) ---------- */
+function getSearchInfo(){
+  const el = document.getElementById('searchProduct');
+  const raw = el ? el.value.trim() : '';
+  const isKeyword = raw.startsWith('%');
+  const term = (isKeyword ? raw.slice(1) : raw).trim().toLowerCase();
+  return {raw, isKeyword, term};
+}
 function getFilteredProducts(){
-  const q = document.getElementById('searchProduct').value.trim().toLowerCase();
+  const {raw, isKeyword, term} = getSearchInfo();
+  if(!raw || !term) return [];
   return products.filter(p=>{
-    const nameMatch = p.name.toLowerCase().includes(q);
-    const codeMatch = (p.code||'').toLowerCase().includes(q);
-    return nameMatch || codeMatch;
+    const name = String(p.name||'').toLowerCase();
+    const code = String(p.code||'').toLowerCase();
+    if(isKeyword){
+      return name.includes(term) || code.includes(term);
+    }
+    return name.includes(term) || code.includes(term);
   });
 }
 function renderProductGrid(){
   const grid = document.getElementById('productGrid');
-  const list = getFilteredProducts();
-  if(products.length===0){
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="ee-icon">📦</div>Nenhum produto cadastrado. <a href="#" id="goProductsLink">Cadastre seu primeiro produto</a>.</div>`;
-    document.getElementById('goProductsLink').onclick = (e)=>{e.preventDefault(); goToView('produtos');};
+  const searchEl = document.getElementById('searchProduct');
+  if(!grid) return;
+  const {raw, isKeyword, term} = getSearchInfo();
+
+  if(!raw){
+    grid.innerHTML = '';
     return;
   }
-  grid.innerHTML = list.map(p=>{
-    const low = p.stock <= p.minStock;
-    const out = p.stock <= 0;
+
+  if(products.length===0){
+    grid.innerHTML = `<div class="quick-product-card"><strong>Nenhum produto cadastrado.</strong>A venda continua aberta. Cadastre o produto sem sair da tela de venda.<br><button type="button" class="btn btn-ghost btn-sm" id="quickEmptyProductBtn">+ Produto</button></div>`;
+    const quickEmptyBtn = document.getElementById('quickEmptyProductBtn');
+    if(quickEmptyBtn) quickEmptyBtn.onclick = ()=>openQuickProductFromSales(raw.replace(/^%/, '').trim());
+    return;
+  }
+
+  if(isKeyword && !term){
+    grid.innerHTML = `<div class="quick-product-card"><strong>Busca por palavra-chave.</strong>Digite uma parte do nome depois do %. Exemplo: <b>%VEDA</b>.</div>`;
+    return;
+  }
+
+  const list = getFilteredProducts();
+  if(list.length===0){
+    const clean = (raw || '').replace(/^%/, '').trim();
+    grid.innerHTML = `<div class="quick-product-card"><strong>Produto não encontrado.</strong>${clean ? 'Nenhum produto contém "'+escapeHtml(clean.toLocaleUpperCase('pt-BR'))+'".' : 'Digite o nome do produto para vender.'}<br><button type="button" class="btn btn-ghost btn-sm" id="quickNoResultProductBtn">+ Produto</button></div>`;
+    const quickNoResultBtn = document.getElementById('quickNoResultProductBtn');
+    if(quickNoResultBtn) quickNoResultBtn.onclick = ()=>openQuickProductFromSales(clean);
+    return;
+  }
+
+  const available = list.filter(p=>Number(p.stock||0)>0).length;
+  const title = isKeyword
+    ? `Resultado da busca por "%${escapeHtml(term.toLocaleUpperCase('pt-BR'))}" — ${list.length} encontrado(s)`
+    : `Resultado da pesquisa — ${list.length} encontrado(s)`;
+
+  grid.innerHTML = `<div class="sale-result-title">${title}${available===0?' · sem estoque disponível':''}</div>` + list.map(p=>{
+    const low = Number(p.stock||0) <= Number(p.minStock||0);
+    const out = Number(p.stock||0) <= 0;
     return `<button class="product-tile ${out?'disabled':''}" data-id="${p.id}" ${out?'disabled':''}>
       <div class="pname">${escapeHtml(p.name)}</div>
       ${p.code?`<div style="font-size:10.5px;color:var(--ink-soft);font-family:'JetBrains Mono',monospace;margin-bottom:4px;">#${escapeHtml(p.code)}</div>`:''}
       <div class="pprice">${fmt(p.price)}</div>
       <div class="pstock ${low?'low':''}">${out?'Sem estoque': (p.stock+' em estoque')}</div>
     </button>`;
-  }).join('') || `<div class="empty-state" style="grid-column:1/-1;">Nenhum produto encontrado.</div>`;
+  }).join('');
 
   grid.querySelectorAll('.product-tile:not(.disabled)').forEach(tile=>{
     tile.addEventListener('click', ()=> openQuantityModal(tile.dataset.id));
@@ -1300,22 +1386,55 @@ document.getElementById('discValue').addEventListener('input', (e)=>{
   discountValue = parseFloat(e.target.value) || 0;
   computeCartTotals();
 });
+installEnterFlow(document.getElementById('view-vendas'), ['discPercent','discValue'], ()=>focusPaymentStep());
 
 document.getElementById('clearCartBtn').addEventListener('click', ()=>{ cart=[]; resetDiscount(); resetSaleType(); resetPaymentFlow(); renderCart(); });
 document.getElementById('searchProduct').addEventListener('input', renderProductGrid);
+const quickProductBtn = document.getElementById('quickProductBtn');
+if(quickProductBtn){
+  quickProductBtn.addEventListener('click', ()=>openQuickProductFromSales());
+}
 document.getElementById('searchProduct').addEventListener('keydown', (e)=>{
   if(e.key!=='Enter') return;
   e.preventDefault();
-  const q = e.target.value.trim().toLowerCase();
-  if(!q){
+  forceUppercaseValue(e.target);
+  const {raw, isKeyword, term} = getSearchInfo();
+  if(!raw){
     if(cart.length>0) focusPaymentStep();
+    else {
+      showToast('Digite ou escaneie um produto para iniciar a venda.');
+      e.target.focus();
+    }
     return;
   }
-  const list = getFilteredProducts().filter(p=>p.stock>0);
-  if(list.length===0){ showToast('Nenhum produto disponível encontrado'); return; }
+  if(isKeyword && !term){
+    showToast('Digite uma palavra depois do %. Exemplo: %VEDA');
+    return;
+  }
+  const rawList = getFilteredProducts();
+  const list = rawList.filter(p=>Number(p.stock||0)>0);
+  if(list.length===0){
+    if(rawList.length>0){
+      showToast('Produto encontrado, mas sem estoque. Atualize o estoque no cadastro rápido/edição.');
+      const first = document.querySelector('#productGrid .product-tile');
+      if(first) first.focus();
+      return;
+    }
+    openQuickProductFromSales(raw.replace(/^%/, '').trim());
+    return;
+  }
+  if(isKeyword && list.length>1){
+    renderProductGrid();
+    const first = document.querySelector('#productGrid .product-tile:not(.disabled)');
+    if(first) first.focus();
+    showToast('Selecione o produto na lista de resultados.');
+    return;
+  }
   // prioriza correspondência exata de código
-  const exactCode = list.find(p=>(p.code||'').toLowerCase()===q);
-  const chosen = exactCode || list[0];
+  const q = term;
+  const exactCode = list.find(p=>String(p.code||'').toLowerCase()===q);
+  const exactName = list.find(p=>String(p.name||'').toLowerCase()===q);
+  const chosen = exactCode || exactName || list[0];
   openQuantityModal(chosen.id);
 });
 function selectPaymentButton(btn, focusFinalize=true){
@@ -1378,6 +1497,14 @@ document.getElementById('saleTypeMethods').addEventListener('click', (e)=>{
 });
 document.getElementById('customerNameInput').addEventListener('input', (e)=>{
   customerName = e.target.value;
+});
+document.getElementById('customerNameInput').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    forceUppercaseValue(e.target);
+    customerName = e.target.value;
+    focusPaymentStep();
+  }
 });
 function resetSaleType(){
   saleType = 'balcao';
@@ -1500,7 +1627,11 @@ document.getElementById('addCategoryBtn').addEventListener('click', async ()=>{
   if(ok) input.value = '';
 });
 document.getElementById('newCategoryInput').addEventListener('keydown', (e)=>{
-  if(e.key==='Enter'){ document.getElementById('addCategoryBtn').click(); }
+  if(e.key==='Enter'){
+    e.preventDefault();
+    document.getElementById('addCategoryBtn').click();
+    requestAnimationFrame(()=>focusAndSelect(document.getElementById('newCategoryInput')));
+  }
 });
 
 /* ---------- PRODUTOS ---------- */
@@ -1545,16 +1676,26 @@ async function deleteProduct(id){
   refreshReportsLive();
   syncProductsIfAuto();
 }
-document.getElementById('newProductBtn').addEventListener('click', ()=>openProductModal(null));
+document.getElementById('newProductBtn').addEventListener('click', ()=>openProductModal(null, {keepOpen:true}));
 
-function openProductModal(id){
+function openQuickProductFromSales(prefill){
+  const searchEl = document.getElementById('searchProduct');
+  const typed = (typeof prefill === 'string' ? prefill : (searchEl ? searchEl.value : '')).trim();
+  openProductModal(null, {quickSale:true, keepOpen:false, prefillName:typed});
+}
+
+function openProductModal(id, options={}){
   const editing = id ? products.find(p=>p.id===id) : null;
+  const quickSale = !!options.quickSale;
+  const keepOpen = editing ? false : options.keepOpen !== false && !quickSale;
+  const prefillName = options.prefillName ? String(options.prefillName).toLocaleUpperCase('pt-BR') : '';
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal">
-      <h3>${editing?'Editar produto':'Novo produto'}</h3>
-      <div class="field"><label>Nome do produto</label><input id="mName" class="force-uppercase" type="text" value="${editing?escapeHtml(editing.name):''}"></div>
+      <h3>${editing?'Editar produto':(quickSale?'Cadastro rápido sem sair da venda':'Novo produto')}</h3>
+      <p class="helper-text" style="margin-top:-8px;">${quickSale ? 'A venda atual fica preservada. Use Enter para avançar e cadastrar; ao salvar, você volta automaticamente para a venda.' : 'Use Enter para avançar campo por campo. No último campo, Enter salva automaticamente.'}</p>
+      <div class="field"><label>Nome do produto</label><input id="mName" class="force-uppercase" type="text" value="${editing?escapeHtml(editing.name):escapeHtml(prefillName)}"></div>
       <div class="field"><label>Código / SKU (opcional)</label><input id="mCode" class="force-uppercase" type="text" value="${editing?escapeHtml(editing.code||''):''}" placeholder="Ex: 001, COD-123..."></div>
       <div class="field">
         <label>Categoria</label>
@@ -1577,8 +1718,8 @@ function openProductModal(id){
         <div class="field"><label>Estoque mínimo (alerta)</label><input id="mMinStock" type="number" step="1" min="0" value="${editing?editing.minStock:5}"></div>
       </div>
       <div style="display:flex; gap:8px; margin-top:8px;">
-        <button class="btn btn-ghost btn-block" id="mCancel">Cancelar</button>
-        <button class="btn btn-primary btn-block" id="mSave">${editing?'Salvar':'Cadastrar'}</button>
+        <button class="btn btn-ghost btn-block" id="mCancel">Fechar</button>
+        <button class="btn btn-primary btn-block" id="mSave">${editing?'Salvar':(keepOpen?'Cadastrar e continuar':'Cadastrar')}</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -1586,6 +1727,9 @@ function openProductModal(id){
   document.getElementById('mCancel').onclick = ()=>overlay.remove();
   // Não fecha o cadastro/edição de produto ao clicar fora do modal.
   // Isso evita perder o preenchimento ao selecionar/apagar texto e soltar o mouse fora do campo.
+  const productFieldOrder = ['mName','mCode','mCategory','mPrice','mCost','mStock','mMinStock'];
+  installEnterFlow(overlay, productFieldOrder, ()=>document.getElementById('mSave').click());
+
   const newCatBtn = document.getElementById('mNewCategoryBtn');
   if(newCatBtn) newCatBtn.onclick = async ()=>{
     const name = prompt('Nome da nova categoria:');
@@ -1594,43 +1738,80 @@ function openProductModal(id){
     if(!ok) return;
     const sel = document.getElementById('mCategory');
     const clean = name.trim().toLocaleUpperCase('pt-BR');
-    const opt = document.createElement('option');
-    opt.value = clean; opt.textContent = clean;
-    sel.appendChild(opt);
+    if(!Array.from(sel.options).some(o=>o.value===clean)){
+      const opt = document.createElement('option');
+      opt.value = clean; opt.textContent = clean;
+      sel.appendChild(opt);
+    }
     sel.value = clean;
+    focusAndSelect(document.getElementById('mPrice'));
   };
-  if(!editing){
-    requestAnimationFrame(()=>{
-      const nameInput = document.getElementById('mName');
-      if(nameInput){ nameInput.focus(); nameInput.select(); }
-    });
+
+  function resetProductModalForNext(savedCategory){
+    ['mName','mCode','mPrice','mCost'].forEach(fid=>{ const el=document.getElementById(fid); if(el) el.value=''; });
+    const stockEl = document.getElementById('mStock');
+    const minEl = document.getElementById('mMinStock');
+    if(stockEl) stockEl.value = '0';
+    if(minEl) minEl.value = '5';
+    const catEl = document.getElementById('mCategory');
+    if(catEl && savedCategory) catEl.value = savedCategory;
+    requestAnimationFrame(()=>focusAndSelect(document.getElementById('mName')));
   }
 
   document.getElementById('mSave').onclick = async ()=>{
     overlay.querySelectorAll('.force-uppercase').forEach(forceUppercaseValue);
     const name = document.getElementById('mName').value.trim();
     const price = parseFloat(document.getElementById('mPrice').value);
-    if(!name){ showToast('Informe o nome do produto'); return; }
-    if(isNaN(price) || price < 0){ showToast('Informe um preço válido'); return; }
+    if(!name){ showToast('Informe o nome do produto'); focusAndSelect(document.getElementById('mName')); return; }
+    if(isNaN(price) || price < 0){ showToast('Informe um preço válido'); focusAndSelect(document.getElementById('mPrice')); return; }
     const code = document.getElementById('mCode').value.trim();
     const category = document.getElementById('mCategory').value.trim();
     const cost = parseFloat(document.getElementById('mCost').value);
     const stock = parseInt(document.getElementById('mStock').value) || 0;
     const minStock = parseInt(document.getElementById('mMinStock').value) || 0;
+    let savedProduct;
     if(editing){
       Object.assign(editing, {name, code, category, price, cost: isNaN(cost)?0:cost, stock, minStock, updatedAt: nowStamp()});
+      savedProduct = editing;
     } else {
-      products.push({id: uid(), name, code, category, price, cost: isNaN(cost)?0:cost, stock, minStock, updatedAt: nowStamp()});
+      savedProduct = {id: uid(), name, code, category, price, cost: isNaN(cost)?0:cost, stock, minStock, updatedAt: nowStamp()};
+      products.push(savedProduct);
     }
     await saveProducts();
     renderProductsTable();
     renderProductGrid();
-    overlay.remove();
-    refreshReportsLive();
-  showToast(editing?'Produto atualizado':'Produto cadastrado');
     refreshReportsLive();
     syncProductsIfAuto();
+
+    if(editing){
+      overlay.remove();
+      showToast('Produto atualizado');
+      return;
+    }
+
+    if(quickSale){
+      overlay.remove();
+      const searchEl = document.getElementById('searchProduct');
+      if(searchEl) searchEl.value = savedProduct.name;
+      renderProductGrid();
+      showToast('Produto cadastrado — pronto para vender');
+      if(savedProduct.stock > 0){
+        setTimeout(()=>openQuantityModal(savedProduct.id), 80);
+      } else if(searchEl){
+        searchEl.focus();
+        showToast('Produto cadastrado, mas está sem estoque. Atualize o estoque para vender.');
+      }
+      return;
+    }
+
+    showToast('Produto cadastrado. Digite o próximo produto.');
+    resetProductModalForNext(category);
   };
+
+  requestAnimationFrame(()=>{
+    const nameInput = document.getElementById('mName');
+    if(nameInput){ nameInput.focus(); nameInput.select(); }
+  });
 }
 
 /* ---------- CAIXA (retiradas) ---------- */
@@ -1675,7 +1856,22 @@ if(withdrawalMethodsEl){
     btn.classList.add('selected');
     selectedWithdrawalPayment = btn.dataset.withdrawalPay || 'Dinheiro';
   });
+  withdrawalMethodsEl.addEventListener('keydown', (e)=>{
+    const btn = e.target.closest('.pay-btn');
+    if(!btn || e.key !== 'Enter') return;
+    e.preventDefault();
+    withdrawalMethodsEl.querySelectorAll('.pay-btn').forEach(b=>b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedWithdrawalPayment = btn.dataset.withdrawalPay || 'Dinheiro';
+    document.getElementById('addWithdrawalBtn').click();
+  });
 }
+
+installEnterFlow(document.getElementById('view-caixa'), ['wAmount','wDesc'], ()=>{
+  const selectedBtn = withdrawalMethodsEl ? withdrawalMethodsEl.querySelector('.pay-btn.selected') : null;
+  if(selectedBtn) selectedBtn.focus();
+  else document.getElementById('addWithdrawalBtn').click();
+});
 
 document.getElementById('addWithdrawalBtn').addEventListener('click', async ()=>{
   const amount = parseFloat(document.getElementById('wAmount').value);
@@ -1703,6 +1899,7 @@ document.getElementById('addWithdrawalBtn').addEventListener('click', async ()=>
   refreshCaixaSummary();
   refreshReportsLive();
   showToast('Retirada registrada em ' + withdrawalPaymentLabel + ' — ' + fmt(amount));
+  requestAnimationFrame(()=>focusAndSelect(document.getElementById('wAmount')));
   syncWithdrawalIfAuto(withdrawal);
 });
 
@@ -2366,6 +2563,11 @@ document.getElementById('syncAllBtn').addEventListener('click', async ()=>{
   if(result.success){ await processSyncQueue(); }
   showToast(result.success ? 'Backup completo enviado!' : 'Erro no backup completo');
 });
+
+
+/* ---------- Atalhos de ENTER em relatórios e configurações ---------- */
+installEnterFlow(document.getElementById('view-relatorios'), ['repStart','repEnd'], ()=>document.getElementById('runReportBtn').click());
+installEnterFlow(document.getElementById('view-backup'), ['backupUrl'], ()=>document.getElementById('saveBackupUrlBtn').click());
 
 /* ---------- Init ---------- */
 async function init(){
