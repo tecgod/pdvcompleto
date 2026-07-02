@@ -137,6 +137,20 @@
   .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;}
   .badge-low{background:var(--warn-soft);color:var(--warn);}
   .badge-ok{background:var(--accent-soft);color:var(--accent-dark);}
+  .badge-open{background:var(--accent-soft);color:var(--accent-dark);}
+  .badge-closed{background:var(--danger-soft);color:var(--danger);}
+  .diff-pos{color:var(--accent-dark);font-weight:700;}
+  .diff-neg{color:var(--danger);font-weight:700;}
+  .diff-zero{color:var(--ink-soft);font-weight:700;}
+  .caixa-session-row{display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between;}
+  .caixa-session-info{display:flex;flex-direction:column;gap:5px;}
+  .caixa-session-info .csi-status{font-size:13px;}
+  .caixa-session-info .csi-detail{font-size:12px;color:var(--ink-soft);}
+  .caixa-close-table{width:100%;border-collapse:collapse;margin:14px 0;}
+  .caixa-close-table th,.caixa-close-table td{padding:8px 6px;border-bottom:1px solid var(--line);font-size:13px;text-align:right;}
+  .caixa-close-table th:first-child,.caixa-close-table td:first-child{text-align:left;}
+  .caixa-close-table input{width:100px;text-align:right;padding:6px 8px;font-size:13px;}
+  .caixa-close-total-row td{font-weight:700;border-top:2px solid var(--line);border-bottom:none;padding-top:10px;}
   .section-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
   .section-title h2{font-size:16.5px;margin:0;}
   .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
@@ -395,6 +409,19 @@
 
       <!-- CAIXA -->
       <div class="view" id="view-caixa">
+        <div class="card card-pad" id="caixaSessionCard" style="margin-bottom:20px;">
+          <div class="section-title"><h2>Abertura / fechamento de caixa</h2></div>
+          <div class="caixa-session-row">
+            <div class="caixa-session-info" id="caixaSessionInfo">
+              <span class="csi-status"><span class="badge badge-closed">Caixa fechado</span></span>
+              <span class="csi-detail">Abra o caixa informando o valor inicial em dinheiro para começar a operar.</span>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="btn btn-primary" id="openCaixaBtn">🔓 Abrir caixa</button>
+              <button type="button" class="btn btn-danger" id="closeCaixaBtn" style="display:none;">🔒 Fechar caixa</button>
+            </div>
+          </div>
+        </div>
         <div class="card card-pad" style="margin-bottom:20px;">
           <div class="section-title"><h2>Dashboard do caixa de hoje</h2></div>
           <div class="caixa-stat-grid">
@@ -438,6 +465,20 @@
               <button type="button" class="pay-btn" data-withdrawal-pay="Crédito">Crédito</button>
             </div>
             <button class="btn btn-warn btn-block" id="addWithdrawalBtn">Registrar retirada</button>
+          </div>
+        </div>
+
+        <div class="card card-pad" style="margin-top:20px;">
+          <div class="section-title"><h2>Histórico de aberturas e fechamentos</h2></div>
+          <div class="report-table-wrap">
+            <table>
+              <thead><tr><th>Data</th><th>Abertura</th><th class="num">Valor abertura</th><th>Fechamento</th><th class="num">Dinheiro esperado</th><th class="num">Dinheiro contado</th><th class="num">Diferença total</th><th>Status</th></tr></thead>
+              <tbody id="caixaHistoryBody"></tbody>
+            </table>
+          </div>
+          <div id="caixaHistoryEmpty" class="empty-state" style="display:none;">
+            <div class="ee-icon">🗂️</div>
+            Nenhuma abertura de caixa registrada ainda.
           </div>
         </div>
       </div>
@@ -529,6 +570,16 @@
             </div>
 
             <div class="card card-pad" style="margin-top:20px;">
+              <div class="section-title"><h2>Backup local (arquivo)</h2></div>
+              <p class="helper-text" style="margin-top:0;">Baixa um arquivo com todo o histórico (produtos, categorias, vendas e retiradas) para guardar no computador, pendrive ou nuvem pessoal. Não precisa de internet nem de URL configurada. Use "Restaurar de arquivo" para importar em outro aparelho ou recuperar dados.</p>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-primary btn-block" id="exportBackupFileBtn">⬇️ Baixar backup (.json)</button>
+                <button class="btn btn-ghost btn-block" id="importBackupFileBtn">⬆️ Restaurar de arquivo</button>
+                <input type="file" id="importBackupFileInput" accept="application/json,.json" style="display:none;">
+              </div>
+            </div>
+
+            <div class="card card-pad" style="margin-top:20px;">
               <div class="section-title"><h2>Enviar agora</h2></div>
               <p class="helper-text" style="margin-top:0;">Envios manuais não duplicam dados. A sincronização também busca vendas e retiradas feitas em outros aparelhos e processa pendências offline.</p>
               <div style="display:flex; flex-direction:column; gap:8px;">
@@ -554,7 +605,7 @@
               <li>Copie a <b>URL do app da Web</b> gerada e cole no campo "URL do Web App" ao lado.</li>
               <li>Clique em "Salvar configuração" e depois em "Testar conexão".</li>
             </ol>
-            <p class="helper-text">O script cria automaticamente as abas <b>Produtos</b>, <b>Vendas</b> e <b>Retiradas</b> na planilha na primeira vez que receber dados.</p>
+            <p class="helper-text">O script cria automaticamente as abas <b>Produtos</b>, <b>Vendas</b>, <b>Retiradas</b> e <b>Caixa</b> (aberturas/fechamentos) na planilha na primeira vez que receber dados.</p>
             <div class="section-title" style="margin-top:18px;"><h2 style="font-size:14.5px;">Script do Google Apps Script</h2><button class="btn btn-ghost btn-sm" id="copyGasBtn">Copiar código</button></div>
             <textarea id="gasScript" readonly style="width:100%; height:260px; font-family:'JetBrains Mono',monospace; font-size:11.5px; padding:12px; border:1px solid var(--line); border-radius:9px; background:#0E1A14; color:#4CF2B0; resize:vertical;"></textarea>
           </div>
@@ -756,6 +807,33 @@ async function getAllLocalWithdrawals(){
   }
   return all;
 }
+async function getAllLocalCashSessions(){
+  const keys = await storageListKeys('caixaSessions:');
+  let all = [];
+  for(const k of keys){
+    const arr = await storageGet(k);
+    if(Array.isArray(arr)) all = all.concat(arr);
+  }
+  return all;
+}
+async function saveImportedCashSession(session){
+  if(!session || !session.id) return false;
+  const dk = session.date || todayKey();
+  const arr = await loadDayCashSessions(dk);
+  const idx = arr.findIndex(s=>String(s.id)===String(session.id));
+  if(idx === -1){
+    arr.push(session);
+    await saveDayCashSessions(dk, arr);
+    return true;
+  }
+  const remoteNewer = String(session.updatedAt || '') > String(arr[idx].updatedAt || '');
+  if(remoteNewer){
+    arr[idx] = session;
+    await saveDayCashSessions(dk, arr);
+    return true;
+  }
+  return false;
+}
 async function saveImportedSale(sale){
   if(!sale || !sale.id) return false;
   const dk = sale.date || todayKey();
@@ -849,6 +927,10 @@ async function pullFromSheet(){
       const imported = await saveImportedWithdrawal(w);
       if(imported) changed = true;
     }
+    for(const cs of (data.cashSessions || [])){
+      const imported = await saveImportedCashSession(cs);
+      if(imported) changed = true;
+    }
     if(changed){
       await saveProducts();
       renderProductGrid();
@@ -856,6 +938,7 @@ async function pullFromSheet(){
       refreshCaixaSummary();
       refreshReportsLive();
       refreshRegisterDisplay();
+      refreshCaixaSessionView();
     }
     return {success:true, changed};
   }catch(err){
@@ -943,6 +1026,12 @@ async function loadDayWithdrawals(dateKey){
 async function saveDayWithdrawals(dateKey, arr){
   await storageSet('withdrawals:'+dateKey, arr);
 }
+async function loadDayCashSessions(dateKey){
+  return (await storageGet('caixaSessions:'+dateKey)) || [];
+}
+async function saveDayCashSessions(dateKey, arr){
+  await storageSet('caixaSessions:'+dateKey, arr);
+}
 
 /* ---------- Navigation ---------- */
 const titles = {vendas:'Vendas', produtos:'Produtos', caixa:'Caixa', relatorios:'Relatórios', backup:'Backup'};
@@ -959,7 +1048,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     document.getElementById('view-'+view).classList.add('active');
     document.getElementById('topbarTitle').textContent = titles[view];
     if(view==='produtos'){ renderProductsTable(); renderCategoriesList(); }
-    if(view==='caixa'){ refreshCaixaSummary(); refreshCaixaView(); }
+    if(view==='caixa'){ refreshCaixaSummary(); refreshCaixaView(); refreshCaixaSessionView(); }
     if(view==='relatorios') initReportsDefault();
     if(view==='backup') initBackupView();
   });
@@ -1005,6 +1094,280 @@ async function refreshCaixaSummary(){
   setText('caixaCredito', fmt(summary.byIn['Crédito']||0));
   setText('caixaSaiuCredito', fmt(summary.byOut['Crédito']||0));
   setText('caixaSaldoCredito', fmt(summary.byBalance['Crédito']||0));
+}
+
+/* ---------- Abertura / fechamento de caixa ---------- */
+function cashSessionDateKeys(session){
+  const keys = [session.date || todayKey()];
+  const t = todayKey();
+  if(t !== session.date) keys.push(t);
+  return keys;
+}
+
+async function getOpenCashSession(){
+  const dates = [todayKey(), todayKey(new Date(Date.now() - 86400000))];
+  for(const dk of dates){
+    const arr = await loadDayCashSessions(dk);
+    const open = (arr || []).find(s => s.status === 'aberto');
+    if(open) return open;
+  }
+  return null;
+}
+
+async function getSessionCashSummary(session){
+  const dateKeys = cashSessionDateKeys(session);
+  let sales = [];
+  let withdrawals = [];
+  for(const dk of dateKeys){
+    const s = await loadDaySales(dk);
+    const w = await loadDayWithdrawals(dk);
+    sales = sales.concat(Array.isArray(s) ? s : []);
+    withdrawals = withdrawals.concat(Array.isArray(w) ? w : []);
+  }
+  const cutoff = session.openedAt || '';
+  sales = sales.filter(s => String(s.updatedAt || '') >= cutoff);
+  withdrawals = withdrawals.filter(w => String(w.updatedAt || '') >= cutoff);
+  const fin = calculateFinancialSummary(sales, withdrawals);
+  const expected = {};
+  PAYMENT_METHODS.forEach(m => { expected[m] = roundMoney(fin.byBalance[m] || 0); });
+  expected['Dinheiro'] = roundMoney((Number(session.openingAmount) || 0) + (fin.byBalance['Dinheiro'] || 0));
+  return Object.assign({sales, withdrawals, expected}, fin);
+}
+
+async function openCashSession(openingAmount, notes){
+  const existing = await getOpenCashSession();
+  if(existing){ showToast('Já existe um caixa aberto'); return null; }
+  const dk = todayKey();
+  const arr = await loadDayCashSessions(dk);
+  const session = {
+    id: uid(), date: dk, openedAt: nowStamp(), openingAmount: roundMoney(Number(openingAmount) || 0),
+    openingNotes: notes || '', status: 'aberto', closedAt: '', expected: {}, counted: {}, diff: {},
+    diffTotal: 0, closingNotes: '', updatedAt: nowStamp()
+  };
+  arr.push(session);
+  await saveDayCashSessions(dk, arr);
+  syncCashSessionIfAuto(session);
+  return session;
+}
+
+async function closeCashSession(session, countedByMethod, notes){
+  const summary = await getSessionCashSummary(session);
+  const updated = Object.assign({}, session);
+  updated.status = 'fechado';
+  updated.closedAt = nowStamp();
+  updated.expected = summary.expected;
+  updated.counted = {};
+  updated.diff = {};
+  PAYMENT_METHODS.forEach(m => {
+    updated.counted[m] = roundMoney(Number(countedByMethod[m]) || 0);
+    updated.diff[m] = roundMoney(updated.counted[m] - (summary.expected[m] || 0));
+  });
+  updated.diffTotal = roundMoney(Object.values(updated.diff).reduce((a, n) => a + n, 0));
+  updated.closingNotes = notes || '';
+  updated.updatedAt = nowStamp();
+  const arr = await loadDayCashSessions(updated.date);
+  const idx = arr.findIndex(s => String(s.id) === String(updated.id));
+  if(idx >= 0) arr[idx] = updated; else arr.push(updated);
+  await saveDayCashSessions(updated.date, arr);
+  syncCashSessionIfAuto(updated);
+  return updated;
+}
+
+function diffClass(n){
+  const v = Number(n) || 0;
+  if(v > 0.004) return 'diff-pos';
+  if(v < -0.004) return 'diff-neg';
+  return 'diff-zero';
+}
+
+async function refreshCaixaSessionView(){
+  const infoEl = document.getElementById('caixaSessionInfo');
+  const openBtn = document.getElementById('openCaixaBtn');
+  const closeBtn = document.getElementById('closeCaixaBtn');
+  if(!infoEl) return;
+  const session = await getOpenCashSession();
+  if(session){
+    infoEl.innerHTML = `<span class="csi-status"><span class="badge badge-open">Caixa aberto</span></span>
+      <span class="csi-detail">Aberto em ${escapeHtml(session.openedAt || '')} · Valor inicial: ${fmt(session.openingAmount)}${session.openingNotes ? ' · ' + escapeHtml(session.openingNotes) : ''}</span>`;
+    if(openBtn) openBtn.style.display = 'none';
+    if(closeBtn) closeBtn.style.display = '';
+  } else {
+    infoEl.innerHTML = `<span class="csi-status"><span class="badge badge-closed">Caixa fechado</span></span>
+      <span class="csi-detail">Abra o caixa informando o valor inicial em dinheiro para começar a operar.</span>`;
+    if(openBtn) openBtn.style.display = '';
+    if(closeBtn) closeBtn.style.display = 'none';
+  }
+  await renderCaixaHistory();
+}
+
+async function renderCaixaHistory(){
+  const body = document.getElementById('caixaHistoryBody');
+  const empty = document.getElementById('caixaHistoryEmpty');
+  if(!body) return;
+  const all = await getAllLocalCashSessions();
+  all.sort((a, b) => String(b.openedAt || '').localeCompare(String(a.openedAt || '')));
+  const rows = all.slice(0, 60);
+  if(!rows.length){
+    body.innerHTML = '';
+    if(empty) empty.style.display = '';
+    return;
+  }
+  if(empty) empty.style.display = 'none';
+  body.innerHTML = rows.map(s => {
+    const statusBadge = s.status === 'aberto'
+      ? '<span class="badge badge-open">Aberto</span>'
+      : '<span class="badge badge-closed">Fechado</span>';
+    const dinheiroEsperado = s.expected ? (s.expected['Dinheiro'] || 0) : 0;
+    const dinheiroContado = s.counted ? (s.counted['Dinheiro'] || 0) : 0;
+    const diffTotal = s.diffTotal || 0;
+    return `<tr>
+      <td>${escapeHtml(displayDateBR(s.date))}</td>
+      <td>${escapeHtml(s.openedAt || '')}</td>
+      <td class="num">${fmt(s.openingAmount)}</td>
+      <td>${escapeHtml(s.closedAt || '—')}</td>
+      <td class="num">${s.status === 'fechado' ? fmt(dinheiroEsperado) : '—'}</td>
+      <td class="num">${s.status === 'fechado' ? fmt(dinheiroContado) : '—'}</td>
+      <td class="num ${s.status === 'fechado' ? diffClass(diffTotal) : ''}">${s.status === 'fechado' ? fmt(diffTotal) : '—'}</td>
+      <td>${statusBadge}</td>
+    </tr>`;
+  }).join('');
+}
+
+function openCashOpeningModal(mandatory){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:420px;">
+      <h3>Abrir caixa</h3>
+      <p class="helper-text" style="margin-top:-8px;">${mandatory ? 'O caixa ainda não foi aberto hoje. É necessário abrir o caixa para começar a usar o sistema.' : 'Informe o valor em dinheiro que está no caixa neste momento para iniciar a operação do dia.'}</p>
+      <div class="field">
+        <label>Valor inicial em dinheiro (R$)</label>
+        <input type="number" id="openCaixaAmount" step="0.01" min="0" placeholder="0,00">
+      </div>
+      <div class="field">
+        <label>Observação (opcional)</label>
+        <input type="text" id="openCaixaNotes" class="force-uppercase" placeholder="Ex: troco inicial do dia">
+      </div>
+      <div style="display:flex; gap:8px;">
+        ${mandatory ? '' : '<button type="button" class="btn btn-ghost" id="openCaixaCancel" style="flex:1;">Cancelar</button>'}
+        <button type="button" class="btn btn-primary" id="openCaixaConfirm" style="flex:1;">Abrir caixa</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  if(!mandatory){
+    overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
+    overlay.querySelector('#openCaixaCancel').addEventListener('click', close);
+  } else {
+    document.addEventListener('keydown', function blockEsc(e){
+      if(e.key === 'Escape' && document.body.contains(overlay)) e.preventDefault();
+      if(!document.body.contains(overlay)) document.removeEventListener('keydown', blockEsc);
+    });
+  }
+  const amountInput = overlay.querySelector('#openCaixaAmount');
+  requestAnimationFrame(() => focusAndSelect(amountInput));
+  const confirmBtn = overlay.querySelector('#openCaixaConfirm');
+  const doConfirm = async () => {
+    const amount = parseFloat(amountInput.value);
+    if(isNaN(amount) || amount < 0){ showToast('Informe um valor inicial válido'); amountInput.focus(); return; }
+    forceUppercaseValue(overlay.querySelector('#openCaixaNotes'));
+    const notes = overlay.querySelector('#openCaixaNotes').value.trim();
+    const session = await openCashSession(amount, notes);
+    if(session){
+      showToast('Caixa aberto com ' + fmt(amount));
+      close();
+      await refreshCaixaSessionView();
+    }
+  };
+  confirmBtn.addEventListener('click', doConfirm);
+  amountInput.addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); overlay.querySelector('#openCaixaNotes').focus(); } });
+  overlay.querySelector('#openCaixaNotes').addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); doConfirm(); } });
+}
+
+async function openCashClosingModal(session){
+  const summary = await getSessionCashSummary(session);
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const rowsHtml = PAYMENT_METHODS.map(m => {
+    const exp = summary.expected[m] || 0;
+    return `<tr>
+      <td>${escapeHtml(m)}</td>
+      <td class="num">${fmt(exp)}</td>
+      <td class="num"><input type="number" step="0.01" data-close-method="${escapeHtml(m)}" class="close-count-input" value="${exp.toFixed(2)}"></td>
+      <td class="num"><span data-diff-for="${escapeHtml(m)}" class="diff-zero">${fmt(0)}</span></td>
+    </tr>`;
+  }).join('');
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:560px;">
+      <h3>Fechar caixa</h3>
+      <p class="helper-text" style="margin-top:-8px;">Confira o valor esperado por forma de pagamento (calculado a partir das vendas e retiradas desde a abertura) e informe o valor realmente contado.</p>
+      <table class="caixa-close-table">
+        <thead><tr><th>Forma</th><th class="num">Esperado</th><th class="num">Contado</th><th class="num">Diferença</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+        <tfoot>
+          <tr class="caixa-close-total-row"><td>Total</td><td class="num" id="closeExpectedTotal">${fmt(Object.values(summary.expected).reduce((a,n)=>a+n,0))}</td><td class="num" id="closeCountedTotal"></td><td class="num" id="closeDiffTotal"></td></tr>
+        </tfoot>
+      </table>
+      <div class="field">
+        <label>Observação de fechamento (opcional)</label>
+        <input type="text" id="closeCaixaNotes" class="force-uppercase" placeholder="Ex: sobra/falta justificada por...">
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn btn-ghost" id="closeCaixaCancel" style="flex:1;">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="closeCaixaConfirm" style="flex:1;">Confirmar fechamento</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
+  overlay.querySelector('#closeCaixaCancel').addEventListener('click', close);
+
+  const recalc = () => {
+    let countedTotal = 0, diffTotal = 0;
+    PAYMENT_METHODS.forEach(m => {
+      const input = overlay.querySelector(`.close-count-input[data-close-method="${m}"]`);
+      const counted = parseFloat(input.value) || 0;
+      const exp = summary.expected[m] || 0;
+      const diff = roundMoney(counted - exp);
+      countedTotal += counted;
+      diffTotal += diff;
+      const diffEl = overlay.querySelector(`[data-diff-for="${m}"]`);
+      diffEl.textContent = fmt(diff);
+      diffEl.className = diffClass(diff);
+    });
+    overlay.querySelector('#closeCountedTotal').textContent = fmt(countedTotal);
+    const totalEl = overlay.querySelector('#closeDiffTotal');
+    totalEl.textContent = fmt(diffTotal);
+    totalEl.className = diffClass(diffTotal);
+  };
+  overlay.querySelectorAll('.close-count-input').forEach(inp => inp.addEventListener('input', recalc));
+  recalc();
+
+  overlay.querySelector('#closeCaixaConfirm').addEventListener('click', async () => {
+    if(!confirm('Confirmar o fechamento do caixa? Depois de fechado, os valores registrados não devem ser alterados.')) return;
+    const counted = {};
+    PAYMENT_METHODS.forEach(m => {
+      const input = overlay.querySelector(`.close-count-input[data-close-method="${m}"]`);
+      counted[m] = parseFloat(input.value) || 0;
+    });
+    forceUppercaseValue(overlay.querySelector('#closeCaixaNotes'));
+    const notes = overlay.querySelector('#closeCaixaNotes').value.trim();
+    const closed = await closeCashSession(session, counted, notes);
+    showToast('Caixa fechado. Diferença total: ' + fmt(closed.diffTotal));
+    close();
+    await refreshCaixaSessionView();
+  });
+}
+
+const openCaixaBtn = document.getElementById('openCaixaBtn');
+if(openCaixaBtn) openCaixaBtn.addEventListener('click', openCashOpeningModal);
+const closeCaixaBtn = document.getElementById('closeCaixaBtn');
+if(closeCaixaBtn){
+  closeCaixaBtn.addEventListener('click', async () => {
+    const session = await getOpenCashSession();
+    if(!session){ showToast('Não há caixa aberto'); await refreshCaixaSessionView(); return; }
+    await openCashClosingModal(session);
+  });
 }
 
 const toggleRegisterBtn = document.getElementById('toggleRegisterBtn');
@@ -1516,9 +1879,16 @@ function resetSaleType(){
 }
 
 document.getElementById('finalizeSaleBtn').addEventListener('click', async ()=>{
+  if(cart.length===0) return;
+  const openSession = await getOpenCashSession();
+  if(!openSession){
+    showToast('Abra o caixa antes de vender');
+    goToView('caixa');
+    openCashOpeningModal();
+    return;
+  }
   forceUppercaseValue(document.getElementById('customerNameInput'));
   customerName = document.getElementById('customerNameInput').value;
-  if(cart.length===0) return;
   if(saleType === 'cliente' && !customerName.trim()){
     showToast('Informe o nome do cliente');
     document.getElementById('customerNameInput').focus();
@@ -1562,7 +1932,7 @@ document.getElementById('finalizeSaleBtn').addEventListener('click', async ()=>{
   // decrement stock
   cart.forEach(c=>{
     const p = products.find(x=>x.id===c.productId);
-    if(p) p.stock -= c.qty;
+    if(p) p.stock = Math.max(0, (Number(p.stock)||0) - c.qty);
   });
   await saveProducts();
 
@@ -1874,6 +2244,12 @@ installEnterFlow(document.getElementById('view-caixa'), ['wAmount','wDesc'], ()=
 });
 
 document.getElementById('addWithdrawalBtn').addEventListener('click', async ()=>{
+  const openSessionForWithdrawal = await getOpenCashSession();
+  if(!openSessionForWithdrawal){
+    showToast('Abra o caixa antes de registrar retiradas');
+    openCashOpeningModal();
+    return;
+  }
   const amount = parseFloat(document.getElementById('wAmount').value);
   forceUppercaseValue(document.getElementById('wDesc'));
   const description = document.getElementById('wDesc').value.trim();
@@ -2225,10 +2601,13 @@ function doPost(e) {
       appendRetirada_(ss, data.withdrawal);
     } else if (data.type === 'produtos') {
       syncProdutos_(ss, data.products || []);
+    } else if (data.type === 'caixa') {
+      upsertCaixa_(ss, data.session);
     } else if (data.type === 'backup_completo') {
       if (data.products) syncProdutos_(ss, data.products);
       if (data.sales) data.sales.forEach(function (s) { appendVenda_(ss, s); });
       if (data.withdrawals) data.withdrawals.forEach(function (w) { appendRetirada_(ss, w); });
+      if (data.cashSessions) data.cashSessions.forEach(function (cs) { upsertCaixa_(ss, cs); });
     }
 
     return jsonOut_({ success: true, serverTime: new Date().toISOString() });
@@ -2246,7 +2625,8 @@ function doGet(e) {
         serverTime: new Date().toISOString(),
         products: readProdutos_(ss),
         sales: readVendas_(ss),
-        withdrawals: readRetiradas_(ss)
+        withdrawals: readRetiradas_(ss),
+        cashSessions: readCaixa_(ss)
       });
     }
     return jsonOut_({ success: true, status: 'PDV Backup online' });
@@ -2307,6 +2687,9 @@ function retiradasHeaders_() {
 function produtosHeaders_() {
   return ['ID','Nome','Código','Categoria','Preço','Custo','Estoque','Estoque Mínimo','Atualizado Em'];
 }
+function caixaHeaders_() {
+  return ['Data','ID Sessão','Hora Abertura','Valor Abertura','Obs. Abertura','Hora Fechamento','Dinheiro Esperado','Dinheiro Contado','Diferença Dinheiro','Pix Esperado','Pix Contado','Diferença Pix','Débito Esperado','Débito Contado','Diferença Débito','Crédito Esperado','Crédito Contado','Diferença Crédito','Diferença Total','Obs. Fechamento','Status','Atualizado Em'];
+}
 
 function appendVenda_(ss, sale) {
   if (!sale || !sale.id) return;
@@ -2331,6 +2714,78 @@ function appendRetirada_(ss, w) {
   var ids = existingIds_(sheet, 'ID', 3);
   if (ids[w.id]) return;
   sheet.appendRow([w.date || '', w.time || '', w.id, w.description || '', w.payment || 'Dinheiro', w.amount || 0, w.updatedAt || '']);
+}
+
+function upsertCaixa_(ss, session) {
+  if (!session || !session.id) return;
+  var sheet = getOrCreateSheet_(ss, 'Caixa', caixaHeaders_());
+  var map = headerMap_(sheet);
+  var idCol = map['ID Sessão'] + 1;
+  var last = sheet.getLastRow();
+  var rowIndex = -1;
+  if (last >= 2) {
+    var ids = sheet.getRange(2, idCol, last - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) === String(session.id)) { rowIndex = i + 2; break; }
+    }
+  }
+  var expected = session.expected || {};
+  var counted = session.counted || {};
+  var diff = session.diff || {};
+  var row = [
+    session.date || '', session.id, session.openedAt || '', session.openingAmount || 0, session.openingNotes || '',
+    session.closedAt || '',
+    expected['Dinheiro'] || 0, counted['Dinheiro'] || 0, diff['Dinheiro'] || 0,
+    expected['Pix'] || 0, counted['Pix'] || 0, diff['Pix'] || 0,
+    expected['Débito'] || 0, counted['Débito'] || 0, diff['Débito'] || 0,
+    expected['Crédito'] || 0, counted['Crédito'] || 0, diff['Crédito'] || 0,
+    session.diffTotal || 0, session.closingNotes || '', session.status || 'aberto', session.updatedAt || ''
+  ];
+  if (rowIndex === -1) {
+    sheet.appendRow(row);
+  } else {
+    sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
+  }
+}
+
+function readCaixa_(ss) {
+  var sheet = ss.getSheetByName('Caixa');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  ensureHeaders_(sheet, caixaHeaders_());
+  var map = headerMap_(sheet);
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  return values.map(function (r) {
+    return {
+      id: String(r[map['ID Sessão']] || ''),
+      date: String(r[map['Data']] || ''),
+      openedAt: String(r[map['Hora Abertura']] || ''),
+      openingAmount: Number(r[map['Valor Abertura']]) || 0,
+      openingNotes: String(r[map['Obs. Abertura']] || ''),
+      closedAt: String(r[map['Hora Fechamento']] || ''),
+      expected: {
+        'Dinheiro': Number(r[map['Dinheiro Esperado']]) || 0,
+        'Pix': Number(r[map['Pix Esperado']]) || 0,
+        'Débito': Number(r[map['Débito Esperado']]) || 0,
+        'Crédito': Number(r[map['Crédito Esperado']]) || 0
+      },
+      counted: {
+        'Dinheiro': Number(r[map['Dinheiro Contado']]) || 0,
+        'Pix': Number(r[map['Pix Contado']]) || 0,
+        'Débito': Number(r[map['Débito Contado']]) || 0,
+        'Crédito': Number(r[map['Crédito Contado']]) || 0
+      },
+      diff: {
+        'Dinheiro': Number(r[map['Diferença Dinheiro']]) || 0,
+        'Pix': Number(r[map['Diferença Pix']]) || 0,
+        'Débito': Number(r[map['Diferença Débito']]) || 0,
+        'Crédito': Number(r[map['Diferença Crédito']]) || 0
+      },
+      diffTotal: Number(r[map['Diferença Total']]) || 0,
+      closingNotes: String(r[map['Obs. Fechamento']] || ''),
+      status: String(r[map['Status']] || 'aberto'),
+      updatedAt: String(r[map['Atualizado Em']] || '')
+    };
+  }).filter(function (s) { return s.id; });
 }
 
 function syncProdutos_(ss, products) {
@@ -2465,6 +2920,7 @@ async function syncAuto(type, payload){
 async function syncSaleIfAuto(sale){ await syncAuto('venda', {sale}); }
 async function syncWithdrawalIfAuto(withdrawal){ await syncAuto('retirada', {withdrawal}); }
 async function syncProductsIfAuto(){ await syncAuto('produtos', {products}); }
+async function syncCashSessionIfAuto(session){ await syncAuto('caixa', {session}); }
 
 function backupLog(msg){
   const el = document.getElementById('backupLog');
@@ -2533,8 +2989,9 @@ document.getElementById('syncTodayBtn').addEventListener('click', async ()=>{
   const dk = todayKey();
   const sales = await loadDaySales(dk);
   const withdrawals = await loadDayWithdrawals(dk);
-  backupLog(`Enviando ${sales.length} venda(s) e ${withdrawals.length} retirada(s) de hoje...`);
-  const result = await postToSheet('backup_completo', {sales, withdrawals});
+  const cashSessions = await loadDayCashSessions(dk);
+  backupLog(`Enviando ${sales.length} venda(s), ${withdrawals.length} retirada(s) e ${cashSessions.length} sessão(ões) de caixa de hoje...`);
+  const result = await postToSheet('backup_completo', {sales, withdrawals, cashSessions});
   backupLog(result.success ? '✅ Dados de hoje enviados com sucesso.' : '❌ Erro: '+(result.error||''));
   if(result.success){ await processSyncQueue(); }
   showToast(result.success ? 'Vendas e retiradas de hoje sincronizadas' : 'Erro ao sincronizar');
@@ -2547,8 +3004,10 @@ document.getElementById('syncAllBtn').addEventListener('click', async ()=>{
   backupLog('Coletando todo o histórico local...');
   const saleKeys = await storageListKeys('sales:');
   const wKeys = await storageListKeys('withdrawals:');
+  const csKeys = await storageListKeys('caixaSessions:');
   let allSales = [];
   let allWithdrawals = [];
+  let allCashSessions = [];
   for(const k of saleKeys){
     const arr = (await storageGet(k)) || [];
     allSales = allSales.concat(arr);
@@ -2557,13 +3016,125 @@ document.getElementById('syncAllBtn').addEventListener('click', async ()=>{
     const arr = (await storageGet(k)) || [];
     allWithdrawals = allWithdrawals.concat(arr);
   }
-  backupLog(`Enviando backup completo: ${products.length} produto(s), ${allSales.length} venda(s), ${allWithdrawals.length} retirada(s)...`);
-  const result = await postToSheet('backup_completo', {products, sales: allSales, withdrawals: allWithdrawals});
+  for(const k of csKeys){
+    const arr = (await storageGet(k)) || [];
+    allCashSessions = allCashSessions.concat(arr);
+  }
+  backupLog(`Enviando backup completo: ${products.length} produto(s), ${allSales.length} venda(s), ${allWithdrawals.length} retirada(s), ${allCashSessions.length} sessão(ões) de caixa...`);
+  const result = await postToSheet('backup_completo', {products, sales: allSales, withdrawals: allWithdrawals, cashSessions: allCashSessions});
   backupLog(result.success ? '✅ Backup completo enviado com sucesso.' : '❌ Erro no backup completo: '+(result.error||''));
   if(result.success){ await processSyncQueue(); }
   showToast(result.success ? 'Backup completo enviado!' : 'Erro no backup completo');
 });
 
+
+/* ---------- Backup local (arquivo .json) ---------- */
+async function gatherFullBackupData(){
+  const saleKeys = await storageListKeys('sales:');
+  const wKeys = await storageListKeys('withdrawals:');
+  const csKeys = await storageListKeys('caixaSessions:');
+  let sales = [];
+  let withdrawals = [];
+  let cashSessions = [];
+  for(const k of saleKeys){ const arr = (await storageGet(k)) || []; sales = sales.concat(arr); }
+  for(const k of wKeys){ const arr = (await storageGet(k)) || []; withdrawals = withdrawals.concat(arr); }
+  for(const k of csKeys){ const arr = (await storageGet(k)) || []; cashSessions = cashSessions.concat(arr); }
+  return {
+    app: 'PDV',
+    formatVersion: 2,
+    exportedAt: nowStamp(),
+    products,
+    categories,
+    sales,
+    withdrawals,
+    cashSessions
+  };
+}
+async function exportBackupToFile(){
+  try{
+    const data = await gatherFullBackupData();
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = todayKey() + '_' + nowTime().replace(':','-');
+    a.href = url;
+    a.download = `pdv-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+    backupLog(`✅ Backup local baixado (${data.products.length} produto(s), ${data.sales.length} venda(s), ${data.withdrawals.length} retirada(s)).`);
+    showToast('Backup baixado com sucesso');
+  }catch(err){
+    backupLog('❌ Erro ao gerar backup local: ' + String(err));
+    showToast('Erro ao gerar o arquivo de backup');
+  }
+}
+async function importBackupFromFile(file){
+  if(!file) return;
+  if(!confirm('Importar este arquivo de backup?\n\nProdutos serão mesclados (o mais recente vence) e vendas/retiradas novas serão adicionadas sem duplicar as já existentes. Nada é apagado.')) return;
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if(!data || typeof data !== 'object') throw new Error('Arquivo não reconhecido como backup deste PDV');
+    let addedSales = 0, addedW = 0, productsChanged = false, addedCats = 0;
+
+    if(Array.isArray(data.products) && mergeProductsFromRemote(data.products)) productsChanged = true;
+
+    if(Array.isArray(data.categories)){
+      data.categories.forEach(c=>{
+        const clean = String(c || '').trim().toLocaleUpperCase('pt-BR');
+        if(clean && !categories.some(x=>x.toLowerCase()===clean.toLowerCase())){ categories.push(clean); addedCats++; }
+      });
+      if(addedCats) await saveCategories();
+    }
+
+    if(Array.isArray(data.sales)){
+      for(const sale of data.sales){
+        const imported = await saveImportedSale(sale);
+        if(imported){ await applyImportedSaleToStock(sale); addedSales++; }
+      }
+    }
+    if(Array.isArray(data.withdrawals)){
+      for(const w of data.withdrawals){
+        const imported = await saveImportedWithdrawal(w);
+        if(imported) addedW++;
+      }
+    }
+    let addedCs = 0;
+    if(Array.isArray(data.cashSessions)){
+      for(const cs of data.cashSessions){
+        const imported = await saveImportedCashSession(cs);
+        if(imported) addedCs++;
+      }
+    }
+    if(productsChanged || addedSales) await saveProducts();
+
+    renderProductGrid();
+    renderProductsTable();
+    renderCategoriesList();
+    await refreshCaixaSummary();
+    await refreshRegisterDisplay();
+    await refreshCaixaSessionView();
+    refreshReportsLive();
+
+    backupLog(`✅ Backup importado: ${addedSales} venda(s) nova(s), ${addedW} retirada(s) nova(s), ${addedCs} sessão(ões) de caixa, ${addedCats} categoria(s) nova(s)${productsChanged?', catálogo atualizado':''}.`);
+    showToast('Backup importado com sucesso');
+  }catch(err){
+    backupLog('❌ Erro ao importar backup: ' + String(err));
+    showToast('Arquivo inválido ou corrompido. Veja o log.');
+  }
+}
+document.getElementById('exportBackupFileBtn').addEventListener('click', exportBackupToFile);
+document.getElementById('importBackupFileBtn').addEventListener('click', ()=>{
+  document.getElementById('importBackupFileInput').click();
+});
+document.getElementById('importBackupFileInput').addEventListener('change', async (e)=>{
+  const file = e.target.files && e.target.files[0];
+  await importBackupFromFile(file);
+  e.target.value = '';
+});
 
 /* ---------- Atalhos de ENTER em relatórios e configurações ---------- */
 installEnterFlow(document.getElementById('view-relatorios'), ['repStart','repEnd'], ()=>document.getElementById('runReportBtn').click());
@@ -2578,8 +3149,14 @@ async function init(){
   renderCart();
   await refreshRegisterDisplay();
   await refreshCaixaSummary();
+  await refreshCaixaSessionView();
   refreshReportsLive();
   processSyncQueue();
+  const openSessionAtStart = await getOpenCashSession();
+  if(!openSessionAtStart){
+    showToast('Caixa ainda não foi aberto hoje. Você pode abrir agora ou depois, na aba Caixa.');
+    openCashOpeningModal(false);
+  }
   setInterval(()=>{ refreshRegisterDisplay(); refreshReportsLive(); }, 30000);
   setInterval(()=>{ processSyncQueue(); }, 20000);
 }
