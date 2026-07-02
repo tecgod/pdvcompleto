@@ -998,10 +998,47 @@ let topRegisterUnlocked = false;
 let settingsUnlocked = false;
 
 function checkAppPassword(message){
-  const typed = prompt(message || 'Digite a senha:');
-  if(typed === APP_PASSWORD) return true;
-  if(typed !== null) showToast('Senha incorreta');
-  return false;
+  return new Promise((resolve)=>{
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:360px;">
+        <h3>Senha necessária</h3>
+        <p class="helper-text" style="margin-top:-8px;">${escapeHtml(message || 'Digite a senha:')}</p>
+        <div class="field">
+          <label>Senha</label>
+          <input type="password" id="appPasswordInput" autocomplete="off" placeholder="••••••">
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="btn btn-ghost" id="appPasswordCancel" style="flex:1;">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="appPasswordConfirm" style="flex:1;">Confirmar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('#appPasswordInput');
+    let settled = false;
+    const finish = (result)=>{
+      if(settled) return;
+      settled = true;
+      overlay.remove();
+      resolve(result);
+    };
+    overlay.querySelector('#appPasswordCancel').addEventListener('click', ()=> finish(false));
+    overlay.addEventListener('click', (e)=>{ if(e.target===overlay) finish(false); });
+    const doConfirm = ()=>{
+      const typed = input.value;
+      if(typed === APP_PASSWORD){ finish(true); return; }
+      showToast('Senha incorreta');
+      input.value = '';
+      input.focus();
+    };
+    overlay.querySelector('#appPasswordConfirm').addEventListener('click', doConfirm);
+    input.addEventListener('keydown', (e)=>{
+      if(e.key==='Enter'){ e.preventDefault(); doConfirm(); }
+      else if(e.key==='Escape'){ e.preventDefault(); finish(false); }
+    });
+    requestAnimationFrame(()=> input.focus());
+  });
 }
 
 /* ---------- Data loading ---------- */
@@ -1039,10 +1076,10 @@ async function saveDayCashSessions(dateKey, arr){
 /* ---------- Navigation ---------- */
 const titles = {vendas:'Vendas', produtos:'Produtos', caixa:'Caixa', relatorios:'Relatórios', backup:'Backup'};
 document.querySelectorAll('.nav-btn').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
+  btn.addEventListener('click', async ()=>{
     const view = btn.dataset.view;
     if(view === 'backup' && !settingsUnlocked){
-      if(!checkAppPassword('Digite a senha para abrir as configurações:')) return;
+      if(!(await checkAppPassword('Digite a senha para abrir as configurações:'))) return;
       settingsUnlocked = true;
     }
     document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
@@ -1190,8 +1227,14 @@ async function refreshCaixaSessionView(){
   if(!infoEl) return;
   const session = await getOpenCashSession();
   if(session){
+    const summary = await getSessionCashSummary(session);
+    const opening = Number(session.openingAmount) || 0;
+    const vendasDinheiro = summary.byIn ? (summary.byIn['Dinheiro'] || 0) : 0;
+    const retiradasDinheiro = summary.byOut ? (summary.byOut['Dinheiro'] || 0) : 0;
+    const expectedDinheiro = summary.expected['Dinheiro'] || 0;
     infoEl.innerHTML = `<span class="csi-status"><span class="badge badge-open">Caixa aberto</span></span>
-      <span class="csi-detail">Aberto em ${escapeHtml(session.openedAt || '')} · Valor inicial: ${fmt(session.openingAmount)}${session.openingNotes ? ' · ' + escapeHtml(session.openingNotes) : ''}</span>`;
+      <span class="csi-detail">Aberto em ${escapeHtml(session.openedAt || '')} · Abertura de caixa: <b>${fmt(opening)}</b>${session.openingNotes ? ' · ' + escapeHtml(session.openingNotes) : ''}</span>
+      <span class="csi-detail">Esperado em dinheiro agora: <b>${fmt(expectedDinheiro)}</b> (abertura ${fmt(opening)} + vendas em dinheiro ${fmt(vendasDinheiro)} − retiradas em dinheiro ${fmt(retiradasDinheiro)})</span>`;
     if(openBtn) openBtn.style.display = 'none';
     if(closeBtn) closeBtn.style.display = '';
   } else {
@@ -1377,7 +1420,7 @@ const toggleRegisterBtn = document.getElementById('toggleRegisterBtn');
 if(toggleRegisterBtn){
   toggleRegisterBtn.addEventListener('click', async ()=>{
     if(!topRegisterUnlocked){
-      if(!checkAppPassword('Digite a senha para desocultar o vendido hoje:')) return;
+      if(!(await checkAppPassword('Digite a senha para desocultar o vendido hoje:'))) return;
       topRegisterUnlocked = true;
       toggleRegisterBtn.textContent = 'Ocultar';
     } else {
@@ -1947,6 +1990,7 @@ document.getElementById('finalizeSaleBtn').addEventListener('click', async ()=>{
   renderProductGrid();
   await refreshRegisterDisplay();
   await refreshCaixaSummary();
+  await refreshCaixaSessionView();
   refreshReportsLive();
   showToast('Venda registrada' + (sale.customerName ? ' — '+sale.customerName : '') + ' — ' + fmt(total));
   btn.textContent = 'Finalizar venda';
@@ -2297,6 +2341,7 @@ document.getElementById('addWithdrawalBtn').addEventListener('click', async ()=>
   refreshCaixaView();
   refreshRegisterDisplay();
   refreshCaixaSummary();
+  refreshCaixaSessionView();
   refreshReportsLive();
   showToast('Retirada registrada em ' + withdrawalPaymentLabel + ' — ' + fmt(amount));
   requestAnimationFrame(()=>focusAndSelect(document.getElementById('wAmount')));
