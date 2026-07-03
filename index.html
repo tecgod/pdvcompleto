@@ -201,11 +201,13 @@
   .caixa-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px;}
   .caixa-stat-grid .stat-card{cursor:pointer;transition:box-shadow .15s,border-color .15s;text-align:left;display:block;width:100%;font-family:inherit;}
   .caixa-stat-grid .stat-card:hover,.caixa-stat-grid .stat-card:focus-visible{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);outline:none;}
-  .caixa-detail-table{width:100%;border-collapse:collapse;margin:8px 0 4px;}
-  .caixa-detail-table th,.caixa-detail-table td{padding:7px 6px;border-bottom:1px solid var(--line);font-size:13px;text-align:right;}
+  .caixa-detail-table-wrap{width:100%;overflow-x:hidden;overflow-y:visible;}
+  .caixa-detail-table{width:100%;table-layout:fixed;border-collapse:collapse;margin:8px 0 4px;}
+  .caixa-detail-table th,.caixa-detail-table td{padding:7px 6px;border-bottom:1px solid var(--line);font-size:13px;text-align:right;word-break:break-word;}
   .caixa-detail-table th:first-child,.caixa-detail-table td:first-child,
   .caixa-detail-table th:nth-child(2),.caixa-detail-table td:nth-child(2),
   .caixa-detail-table th:nth-child(3),.caixa-detail-table td:nth-child(3){text-align:left;}
+  .caixa-detail-modal{max-width:820px;}
   .report-click-btn{font-size:12px;padding:5px 9px;border-radius:7px;border:1px solid var(--line);background:#fff;color:var(--accent-dark);font-weight:700;cursor:pointer;}
   .report-click-btn:hover{background:var(--accent-soft);}
   .sale-detail-list{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:12px 0;}
@@ -764,6 +766,63 @@ function installEnterFlow(scope, order, fallbackSubmit){
   });
 }
 
+function selectPayButtonInGroup(container, btn){
+  container.querySelectorAll('.pay-btn').forEach(b=>b.classList.remove('selected'));
+  btn.classList.add('selected');
+}
+/* Navegação padrão (setas + teclas 1-4) para grupos de botões .pay-btn.
+   onChange: chamado sempre que a seleção muda (clique, seta ou número) — só destaca, não finaliza.
+   onConfirm: chamado só quando o Enter é pressionado sobre um botão do grupo — aí sim finaliza a ação. */
+function setupPayButtonGroupKeyboard(container, {onChange, onConfirm, cols=2}={}){
+  if(!container) return;
+  container.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.pay-btn');
+    if(!btn) return;
+    selectPayButtonInGroup(container, btn);
+    if(onChange) onChange(btn, {viaConfirmKey:false});
+  });
+  container.addEventListener('keydown', (e)=>{
+    const btn = e.target.closest('.pay-btn');
+    if(!btn) return;
+    const buttons = Array.from(container.querySelectorAll('.pay-btn'));
+
+    if(['ArrowRight','ArrowLeft','ArrowUp','ArrowDown'].includes(e.key)){
+      e.preventDefault();
+      const idx = buttons.indexOf(btn);
+      const rows = Math.ceil(buttons.length / cols);
+      let row = Math.floor(idx / cols);
+      let col = idx % cols;
+      if(e.key==='ArrowRight') col = (col + 1) % cols;
+      else if(e.key==='ArrowLeft') col = (col - 1 + cols) % cols;
+      else if(e.key==='ArrowDown') row = (row + 1) % rows;
+      else if(e.key==='ArrowUp') row = (row - 1 + rows) % rows;
+      let newIdx = row * cols + col;
+      if(newIdx >= buttons.length) newIdx = idx;
+      buttons[newIdx].focus();
+      selectPayButtonInGroup(container, buttons[newIdx]);
+      if(onChange) onChange(buttons[newIdx], {viaConfirmKey:false});
+      return;
+    }
+
+    if(['1','2','3','4'].includes(e.key)){
+      e.preventDefault();
+      const target = buttons[Number(e.key) - 1];
+      if(target){
+        target.focus();
+        selectPayButtonInGroup(container, target);
+        if(onChange) onChange(target, {viaConfirmKey:false});
+      }
+      return;
+    }
+
+    if(e.key !== 'Enter') return;
+    e.preventDefault();
+    selectPayButtonInGroup(container, btn);
+    if(onChange) onChange(btn, {viaConfirmKey:true});
+    if(onConfirm) onConfirm(btn);
+  });
+}
+
 const LOCAL_STORAGE_PREFIX = 'pdv3:';
 
 function storageHasCloud(){
@@ -1229,7 +1288,7 @@ async function openCaixaDetailModal(kind){
   };
   const withdrawalRow = (w)=>`<tr><td>${escapeHtml(String(w.time||'--'))}</td><td>${escapeHtml(w.description||'—')}</td><td>${escapeHtml(getWithdrawalPayment(w))}</td><td class="num">${fmt(w.amount)}</td></tr>`;
   const table = (rowsHtml, emptyMsg, col2)=> rowsHtml ? `
-    <div class="report-table-wrap">
+    <div class="caixa-detail-table-wrap">
       <table class="caixa-detail-table">
         <thead><tr><th>Hora</th><th>${col2}</th><th>Forma</th><th>Valor</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
@@ -1275,7 +1334,7 @@ async function openCaixaDetailModal(kind){
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
-    <div class="modal" style="max-width:540px;">
+    <div class="modal caixa-detail-modal">
       <h3 style="margin-top:0;">${escapeHtml(title)}</h3>
       ${bodyHtml}
       <div style="display:flex; justify-content:flex-end; margin-top:16px;">
@@ -2516,9 +2575,20 @@ async function refreshCaixaView(){
         <td>${escapeHtml(w.description||'—')}</td>
         <td>${escapeHtml(getWithdrawalPayment(w))}</td>
         <td class="num">${fmt(w.amount)}</td>
-        <td><button class="btn btn-danger btn-sm" data-id="${escapeHtml(String(w.id))}">Excluir</button></td>
+        <td>
+          <div class="row-actions">
+            <button class="btn btn-ghost btn-sm" data-act="edit-w" data-id="${escapeHtml(String(w.id))}">Editar</button>
+            <button class="btn btn-danger btn-sm" data-act="del-w" data-id="${escapeHtml(String(w.id))}">Excluir</button>
+          </div>
+        </td>
       </tr>`).join('');
-    body.querySelectorAll('button[data-id]').forEach(b=>{
+    body.querySelectorAll('button[data-act="edit-w"]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        const w = todayWithdrawals.find(x=>String(x.id)===String(b.dataset.id));
+        if(w) openWithdrawalEditModal(w, dk);
+      });
+    });
+    body.querySelectorAll('button[data-act="del-w"]').forEach(b=>{
       b.addEventListener('click', async ()=>{
         if(!confirm('Excluir esta retirada?')) return;
         todayWithdrawals = todayWithdrawals.filter(w=>String(w.id)!==String(b.dataset.id));
@@ -2532,55 +2602,91 @@ async function refreshCaixaView(){
   }
 }
 
+function openWithdrawalEditModal(withdrawal, dateKey){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h3>Editar retirada</h3>
+      <p class="helper-text" style="margin-top:-8px;">Use Enter para avançar campo por campo. Na forma de retirada, use as setas ou 1-4 para escolher e Enter para confirmar.</p>
+      <div class="field">
+        <label>Valor (R$)</label>
+        <input type="number" id="ewAmount" step="0.01" min="0" value="${Number(withdrawal.amount)||0}">
+      </div>
+      <div class="field">
+        <label>Descrição / motivo</label>
+        <input type="text" id="ewDesc" class="force-uppercase" value="${escapeHtml(withdrawal.description||'')}">
+      </div>
+      <label>Forma da retirada</label>
+      <div class="pay-methods" id="ewMethods" style="margin-bottom:14px;">
+        <button type="button" class="pay-btn" data-withdrawal-pay="Dinheiro">Dinheiro</button>
+        <button type="button" class="pay-btn" data-withdrawal-pay="Pix">Pix</button>
+        <button type="button" class="pay-btn" data-withdrawal-pay="Débito">Débito</button>
+        <button type="button" class="pay-btn" data-withdrawal-pay="Crédito">Crédito</button>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="btn btn-ghost btn-block" id="ewCancel">Fechar</button>
+        <button class="btn btn-primary btn-block" id="ewSave">Salvar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll('.force-uppercase').forEach(forceUppercaseValue);
+
+  const currentMethod = getWithdrawalPayment(withdrawal) || 'Dinheiro';
+  let editWithdrawalPayment = currentMethod;
+  const ewMethodsEl = overlay.querySelector('#ewMethods');
+  const currentBtn = ewMethodsEl.querySelector(`[data-withdrawal-pay="${currentMethod}"]`) || ewMethodsEl.querySelector('[data-withdrawal-pay="Dinheiro"]');
+  selectPayButtonInGroup(ewMethodsEl, currentBtn);
+
+  const doSave = async ()=>{
+    const amount = parseFloat(overlay.querySelector('#ewAmount').value);
+    forceUppercaseValue(overlay.querySelector('#ewDesc'));
+    const description = overlay.querySelector('#ewDesc').value.trim();
+    if(isNaN(amount) || amount <= 0){ showToast('Informe um valor válido'); focusAndSelect(overlay.querySelector('#ewAmount')); return; }
+    if(!description){ showToast('Informe a descrição da retirada'); focusAndSelect(overlay.querySelector('#ewDesc')); return; }
+    withdrawal.amount = amount;
+    withdrawal.description = description;
+    withdrawal.payment = editWithdrawalPayment;
+    withdrawal.updatedAt = nowStamp();
+    const arr = await loadDayWithdrawals(dateKey);
+    const idx = (Array.isArray(arr)?arr:[]).findIndex(x=>String(x.id)===String(withdrawal.id));
+    if(idx>=0){ arr[idx] = withdrawal; await saveDayWithdrawals(dateKey, arr); }
+    overlay.remove();
+    refreshCaixaView();
+    refreshRegisterDisplay();
+    refreshCaixaSummary();
+    refreshCaixaSessionView();
+    refreshReportsLive();
+    showToast('Retirada atualizada');
+  };
+
+  setupPayButtonGroupKeyboard(ewMethodsEl, {
+    onChange: (btn, info)=>{
+      editWithdrawalPayment = btn.dataset.withdrawalPay || 'Dinheiro';
+      if(!info.viaConfirmKey) showToast('Forma selecionada: ' + editWithdrawalPayment + ' — pressione Enter para confirmar');
+    },
+    onConfirm: ()=>doSave()
+  });
+
+  installEnterFlow(overlay, ['ewAmount','ewDesc'], ()=>{
+    const selectedBtn = ewMethodsEl.querySelector('.pay-btn.selected');
+    if(selectedBtn) selectedBtn.focus();
+    else doSave();
+  });
+
+  overlay.querySelector('#ewCancel').addEventListener('click', ()=>overlay.remove());
+  overlay.querySelector('#ewSave').addEventListener('click', doSave);
+  requestAnimationFrame(()=>focusAndSelect(overlay.querySelector('#ewAmount')));
+}
+
 const withdrawalMethodsEl = document.getElementById('withdrawalMethods');
 if(withdrawalMethodsEl){
-  withdrawalMethodsEl.addEventListener('click', (e)=>{
-    const btn = e.target.closest('.pay-btn');
-    if(!btn) return;
-    withdrawalMethodsEl.querySelectorAll('.pay-btn').forEach(b=>b.classList.remove('selected'));
-    btn.classList.add('selected');
-    selectedWithdrawalPayment = btn.dataset.withdrawalPay || 'Dinheiro';
-  });
-  const selectWithdrawalButton = (btn, submit)=>{
-    if(!btn) return;
-    withdrawalMethodsEl.querySelectorAll('.pay-btn').forEach(b=>b.classList.remove('selected'));
-    btn.classList.add('selected');
-    selectedWithdrawalPayment = btn.dataset.withdrawalPay || 'Dinheiro';
-    if(submit) document.getElementById('addWithdrawalBtn').click();
-  };
-  withdrawalMethodsEl.addEventListener('keydown', (e)=>{
-    const btn = e.target.closest('.pay-btn');
-    if(!btn) return;
-    const buttons = Array.from(withdrawalMethodsEl.querySelectorAll('.pay-btn'));
-    const cols = 2;
-
-    if(['ArrowRight','ArrowLeft','ArrowUp','ArrowDown'].includes(e.key)){
-      e.preventDefault();
-      const idx = buttons.indexOf(btn);
-      const rows = Math.ceil(buttons.length / cols);
-      let row = Math.floor(idx / cols);
-      let col = idx % cols;
-      if(e.key==='ArrowRight') col = (col + 1) % cols;
-      else if(e.key==='ArrowLeft') col = (col - 1 + cols) % cols;
-      else if(e.key==='ArrowDown') row = (row + 1) % rows;
-      else if(e.key==='ArrowUp') row = (row - 1 + rows) % rows;
-      let newIdx = row * cols + col;
-      if(newIdx >= buttons.length) newIdx = idx;
-      buttons[newIdx].focus();
-      selectWithdrawalButton(buttons[newIdx], false);
-      return;
-    }
-
-    if(['1','2','3','4'].includes(e.key)){
-      e.preventDefault();
-      const target = buttons[Number(e.key) - 1];
-      if(target){ target.focus(); selectWithdrawalButton(target, true); }
-      return;
-    }
-
-    if(e.key !== 'Enter') return;
-    e.preventDefault();
-    selectWithdrawalButton(btn, true);
+  setupPayButtonGroupKeyboard(withdrawalMethodsEl, {
+    onChange: (btn, info)=>{
+      selectedWithdrawalPayment = btn.dataset.withdrawalPay || 'Dinheiro';
+      if(!info.viaConfirmKey) showToast('Forma selecionada: ' + selectedWithdrawalPayment + ' — pressione Enter para confirmar a retirada');
+    },
+    onConfirm: ()=>{ document.getElementById('addWithdrawalBtn').click(); }
   });
 }
 
