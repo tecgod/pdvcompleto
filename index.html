@@ -3634,13 +3634,17 @@ function openPrintChoiceModal(sale){
 function buildProductsTablePrintHtml(fields, printCfg){
   const storeName = printCfg.storeName || 'TABELA DE PRODUTOS';
   const dateLabel = displayDateBR(todayKey()) + ' às ' + nowTime();
+  const listTitle = fields.lowStockOnly ? 'Produtos com estoque baixo' : 'Tabela de produtos';
+  const list = fields.lowStockOnly
+    ? products.filter(p => !p.isService && p.stock <= p.minStock)
+    : products;
   const cols = [{key:'name', label:'Produto'}];
   if(fields.code) cols.push({key:'code', label:'Código'});
   if(fields.category) cols.push({key:'category', label:'Categoria'});
   if(fields.price) cols.push({key:'price', label:'Preço', num:true});
   if(fields.stock) cols.push({key:'stock', label:'Quantidade', num:true});
   const theadHtml = cols.map(c=>`<th${c.num?' class="num"':''}>${escapeHtml(c.label)}</th>`).join('');
-  const rowsHtml = products.map(p=>{
+  const rowsHtml = list.map(p=>{
     return '<tr>' + cols.map(c=>{
       let val;
       if(c.key==='name') val = p.name||'—';
@@ -3650,12 +3654,12 @@ function buildProductsTablePrintHtml(fields, printCfg){
       else if(c.key==='stock') val = p.isService ? '∞' : String(p.stock);
       return `<td${c.num?' class="num"':''}>${escapeHtml(val)}</td>`;
     }).join('') + '</tr>';
-  }).join('') || `<tr><td colspan="${cols.length}">Nenhum produto cadastrado</td></tr>`;
+  }).join('') || `<tr><td colspan="${cols.length}">${fields.lowStockOnly ? 'Nenhum produto com estoque baixo' : 'Nenhum produto cadastrado'}</td></tr>`;
   return `<div class="receipt receipt-a4">
     <div class="r-header">
       <div class="r-store">${escapeHtml(storeName)}</div>
       ${printCfg.storeInfo ? `<div class="r-sub">${escapeHtml(printCfg.storeInfo)}</div>` : ''}
-      <div class="r-sub">Tabela de produtos · ${escapeHtml(dateLabel)}</div>
+      <div class="r-sub">${escapeHtml(listTitle)} · ${escapeHtml(dateLabel)}</div>
     </div>
     <table>
       <thead><tr>${theadHtml}</tr></thead>
@@ -3699,6 +3703,11 @@ function openPrintProductsModal(){
         <label style="display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px;">
           <input type="checkbox" id="ppfStock" checked> Quantidade (estoque)
         </label>
+        <div style="border-top:1px solid var(--line); margin-top:4px; padding-top:10px;">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px;">
+            <input type="checkbox" id="ppfLowStockOnly"> Somente produtos com estoque baixo
+          </label>
+        </div>
       </div>
       <div style="display:flex; gap:8px; margin-top:8px;">
         <button type="button" class="btn btn-ghost btn-block" id="ppfCancel">Cancelar</button>
@@ -3714,7 +3723,8 @@ function openPrintProductsModal(){
       code: overlay.querySelector('#ppfCode').checked,
       category: overlay.querySelector('#ppfCategory').checked,
       price: overlay.querySelector('#ppfPrice').checked,
-      stock: overlay.querySelector('#ppfStock').checked
+      stock: overlay.querySelector('#ppfStock').checked,
+      lowStockOnly: overlay.querySelector('#ppfLowStockOnly').checked
     };
     printProductsTable(fields);
     close();
