@@ -495,7 +495,7 @@
           <div class="card card-pad">
             <div class="section-title"><h2>Retiradas de hoje</h2></div>
             <table>
-              <thead><tr><th>Hora</th><th>Descrição</th><th>Forma</th><th class="num">Valor</th><th></th></tr></thead>
+              <thead><tr><th>Hora</th><th>Descrição</th><th>Categoria</th><th>Forma</th><th class="num">Valor</th><th></th></tr></thead>
               <tbody id="withdrawalsTableBody"></tbody>
             </table>
             <div id="withdrawalsEmpty" class="empty-state" style="display:none;">
@@ -513,6 +513,15 @@
             <div class="field">
               <label>Descrição / motivo</label>
               <input type="text" id="wDesc" class="force-uppercase" placeholder="Ex: pagamento de fornecedor, retirada pessoal...">
+            </div>
+            <div class="field">
+              <label>Categoria</label>
+              <div class="field-inline-btn">
+                <select id="wCategory">
+                  <option value="">Selecione uma categoria...</option>
+                </select>
+                <button type="button" class="btn btn-ghost btn-sm" id="wNewCategoryBtn">+ Nova</button>
+              </div>
             </div>
             <label>Forma da retirada</label>
             <div class="pay-methods" id="withdrawalMethods" style="margin-bottom:14px;">
@@ -590,6 +599,17 @@
             <table>
               <thead><tr><th>Produto</th><th class="num">Qtd.</th><th class="num">Total vendido</th></tr></thead>
               <tbody id="repTopProductsBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card card-pad" style="margin-top:20px;">
+          <h2 style="margin-top:0;">Retiradas por categoria e forma de pagamento</h2>
+          <p class="helper-text" style="margin-top:0;">Detalhamento das retiradas do per&iacute;odo selecionado acima (di&aacute;rio ou por per&iacute;odo).</p>
+          <div class="report-table-wrap">
+            <table>
+              <thead><tr id="repWithdrawalCatHead"><th>Categoria</th><th class="num">Total</th><th class="num">Qtd.</th></tr></thead>
+              <tbody id="repWithdrawalCatBody"></tbody>
             </table>
           </div>
         </div>
@@ -1145,8 +1165,10 @@ window.addEventListener('offline', ()=>setSyncStatus('Offline: vendas ficam salv
 /* ---------- State ---------- */
 let products = [];
 let categories = [];
+let withdrawalCategories = [];
 let cart = []; // {productId, name, price, qty}
 const PAYMENT_METHODS = ['Dinheiro','Pix','Débito','Crédito'];
+const WITHDRAWAL_PAYMENT_METHODS = ['Dinheiro','Pix','Débito'];
 let selectedPayment = 'Dinheiro';
 let selectedWithdrawalPayment = 'Dinheiro';
 let splitPaymentEnabled = false;
@@ -1223,6 +1245,30 @@ async function loadCategories(){
 }
 async function saveCategories(){
   await storageSet('categories', categories);
+}
+const DEFAULT_WITHDRAWAL_CATEGORIES = ['FORNECEDOR','PESSOAL'];
+async function loadWithdrawalCategories(){
+  const saved = await storageGet('withdrawalCategories');
+  withdrawalCategories = Array.isArray(saved) && saved.length ? saved : DEFAULT_WITHDRAWAL_CATEGORIES.slice();
+  if(!Array.isArray(saved) || !saved.length) await saveWithdrawalCategories();
+}
+async function saveWithdrawalCategories(){
+  await storageSet('withdrawalCategories', withdrawalCategories);
+}
+async function addWithdrawalCategory(name){
+  const clean = String(name||'').trim().toLocaleUpperCase('pt-BR');
+  if(!clean){ showToast('Informe o nome da categoria'); return false; }
+  if(withdrawalCategories.some(c=>c.toLowerCase()===clean.toLowerCase())){ showToast('Essa categoria já existe'); return false; }
+  withdrawalCategories.push(clean);
+  await saveWithdrawalCategories();
+  return clean;
+}
+function renderWithdrawalCategoryOptions(selectEl, selectedValue){
+  if(!selectEl) return;
+  const current = selectedValue!=null ? selectedValue : selectEl.value;
+  selectEl.innerHTML = `<option value="">Selecione uma categoria...</option>`
+    + withdrawalCategories.map(c=>`<option value="${escapeHtml(c)}" ${current===c?'selected':''}>${escapeHtml(c)}</option>`).join('')
+    + (current && !withdrawalCategories.includes(current) ? `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)} (não cadastrada)</option>` : '');
 }
 
 /* ---------- Identidade visual (nome do negócio + logomarca) ---------- */
@@ -1386,7 +1432,12 @@ async function openCaixaDetailModal(kind){
     const amount = amountOverride!=null ? amountOverride : safeSaleTotal(s);
     return `<tr><td>${escapeHtml(String(s.time||'--'))}</td><td>${label}</td><td>${payLabel}</td><td class="num">${fmt(amount)}</td></tr>`;
   };
-  const withdrawalRow = (w)=>`<tr><td>${escapeHtml(String(w.time||'--'))}</td><td>${escapeHtml(w.description||'—')}</td><td>${escapeHtml(getWithdrawalPayment(w))}</td><td class="num">${fmt(w.amount)}</td></tr>`;
+  const withdrawalRow = (w)=>{
+    const descHtml = w.category
+      ? `${escapeHtml(w.description||'—')}<br><span class="helper-text" style="margin:0;">${escapeHtml(w.category)}</span>`
+      : escapeHtml(w.description||'—');
+    return `<tr><td>${escapeHtml(String(w.time||'--'))}</td><td>${descHtml}</td><td>${escapeHtml(getWithdrawalPayment(w))}</td><td class="num">${fmt(w.amount)}</td></tr>`;
+  };
   const table = (rowsHtml, emptyMsg, col2)=> rowsHtml ? `
     <div class="caixa-detail-table-wrap">
       <table class="caixa-detail-table">
@@ -2810,6 +2861,7 @@ async function refreshCaixaView(){
       <tr>
         <td>${escapeHtml(String(w.time||'--'))}</td>
         <td>${escapeHtml(w.description||'—')}</td>
+        <td>${escapeHtml(w.category||'—')}</td>
         <td>${escapeHtml(getWithdrawalPayment(w))}</td>
         <td class="num">${fmt(w.amount)}</td>
         <td>
@@ -2854,6 +2906,15 @@ function openWithdrawalEditModal(withdrawal, dateKey){
         <label>Descrição / motivo</label>
         <input type="text" id="ewDesc" class="force-uppercase" value="${escapeHtml(withdrawal.description||'')}">
       </div>
+      <div class="field">
+        <label>Categoria</label>
+        <div class="field-inline-btn">
+          <select id="ewCategory">
+            <option value="">Selecione uma categoria...</option>
+          </select>
+          <button type="button" class="btn btn-ghost btn-sm" id="ewNewCategoryBtn">+ Nova</button>
+        </div>
+      </div>
       <label>Forma da retirada</label>
       <div class="pay-methods" id="ewMethods" style="margin-bottom:14px;">
         <button type="button" class="pay-btn" data-withdrawal-pay="Dinheiro">Dinheiro</button>
@@ -2868,6 +2929,16 @@ function openWithdrawalEditModal(withdrawal, dateKey){
   document.body.appendChild(overlay);
   overlay.querySelectorAll('.force-uppercase').forEach(forceUppercaseValue);
 
+  renderWithdrawalCategoryOptions(overlay.querySelector('#ewCategory'), withdrawal.category || '');
+  const ewNewCategoryBtn = overlay.querySelector('#ewNewCategoryBtn');
+  if(ewNewCategoryBtn) ewNewCategoryBtn.addEventListener('click', async ()=>{
+    const name = prompt('Nome da nova categoria de retirada:');
+    if(name===null) return;
+    const clean = await addWithdrawalCategory(name);
+    if(!clean) return;
+    renderWithdrawalCategoryOptions(overlay.querySelector('#ewCategory'), clean);
+  });
+
   const currentMethod = getWithdrawalPayment(withdrawal) || 'Dinheiro';
   let editWithdrawalPayment = currentMethod;
   const ewMethodsEl = overlay.querySelector('#ewMethods');
@@ -2878,10 +2949,14 @@ function openWithdrawalEditModal(withdrawal, dateKey){
     const amount = parseFloat(overlay.querySelector('#ewAmount').value);
     forceUppercaseValue(overlay.querySelector('#ewDesc'));
     const description = overlay.querySelector('#ewDesc').value.trim();
+    const ewCategoryEl = overlay.querySelector('#ewCategory');
+    const category = ewCategoryEl ? ewCategoryEl.value : '';
     if(isNaN(amount) || amount <= 0){ showToast('Informe um valor válido'); focusAndSelect(overlay.querySelector('#ewAmount')); return; }
     if(!description){ showToast('Informe a descrição da retirada'); focusAndSelect(overlay.querySelector('#ewDesc')); return; }
+    if(!category){ showToast('Selecione a categoria da retirada'); ewCategoryEl.focus(); return; }
     withdrawal.amount = amount;
     withdrawal.description = description;
+    withdrawal.category = category;
     withdrawal.payment = editWithdrawalPayment;
     withdrawal.updatedAt = nowStamp();
     const arr = await loadDayWithdrawals(dateKey);
@@ -2904,7 +2979,7 @@ function openWithdrawalEditModal(withdrawal, dateKey){
     onConfirm: ()=>doSave()
   });
 
-  installEnterFlow(overlay, ['ewAmount','ewDesc'], ()=>{
+  installEnterFlow(overlay, ['ewAmount','ewDesc','ewCategory'], ()=>{
     const selectedBtn = ewMethodsEl.querySelector('.pay-btn.selected');
     if(selectedBtn) selectedBtn.focus();
     else doSave();
@@ -2926,10 +3001,20 @@ if(withdrawalMethodsEl){
   });
 }
 
-installEnterFlow(document.getElementById('view-caixa'), ['wAmount','wDesc'], ()=>{
+installEnterFlow(document.getElementById('view-caixa'), ['wAmount','wDesc','wCategory'], ()=>{
   const selectedBtn = withdrawalMethodsEl ? withdrawalMethodsEl.querySelector('.pay-btn.selected') : null;
   if(selectedBtn) selectedBtn.focus();
   else document.getElementById('addWithdrawalBtn').click();
+});
+
+const wNewCategoryBtn = document.getElementById('wNewCategoryBtn');
+if(wNewCategoryBtn) wNewCategoryBtn.addEventListener('click', async ()=>{
+  const name = prompt('Nome da nova categoria de retirada:');
+  if(name===null) return;
+  const clean = await addWithdrawalCategory(name);
+  if(!clean) return;
+  renderWithdrawalCategoryOptions(document.getElementById('wCategory'), clean);
+  showToast('Categoria cadastrada');
 });
 
 document.getElementById('addWithdrawalBtn').addEventListener('click', async ()=>{
@@ -2942,16 +3027,20 @@ document.getElementById('addWithdrawalBtn').addEventListener('click', async ()=>
   const amount = parseFloat(document.getElementById('wAmount').value);
   forceUppercaseValue(document.getElementById('wDesc'));
   const description = document.getElementById('wDesc').value.trim();
+  const categoryEl = document.getElementById('wCategory');
+  const category = categoryEl ? categoryEl.value : '';
   if(isNaN(amount) || amount <= 0){ showToast('Informe um valor válido'); return; }
   if(!description){ showToast('Informe a descrição da retirada'); document.getElementById('wDesc').focus(); return; }
+  if(!category){ showToast('Selecione a categoria da retirada'); if(categoryEl) categoryEl.focus(); return; }
   const dk = todayKey();
   const arrRaw = await loadDayWithdrawals(dk);
   const arr = Array.isArray(arrRaw) ? arrRaw : [];
-  const withdrawal = {id: uid(), date: dk, time: nowTime(), amount, description, payment: selectedWithdrawalPayment, updatedAt: nowStamp()};
+  const withdrawal = {id: uid(), date: dk, time: nowTime(), amount, description, category, payment: selectedWithdrawalPayment, updatedAt: nowStamp()};
   arr.push(withdrawal);
   await saveDayWithdrawals(dk, arr);
   document.getElementById('wAmount').value='';
   document.getElementById('wDesc').value='';
+  renderWithdrawalCategoryOptions(categoryEl, '');
   const withdrawalPaymentLabel = selectedWithdrawalPayment;
   selectedWithdrawalPayment = 'Dinheiro';
   if(withdrawalMethodsEl){
@@ -3331,6 +3420,42 @@ async function runReport(options={}){
     topBody.innerHTML = topArr.length ? topArr.map(t=>`<tr><td>${escapeHtml(String(t.name))}</td><td class="num">${t.qty} un.</td><td class="num">${fmt(t.revenue)}</td></tr>`).join('')
       : `<tr><td colspan="3" style="color:var(--ink-soft);">Nenhum produto vendido no per&iacute;odo.</td></tr>`;
 
+    const activeWithdrawalsForCat = allWithdrawals.filter(w=>!w.canceled);
+    const catMethodsSet = new Set(WITHDRAWAL_PAYMENT_METHODS);
+    activeWithdrawalsForCat.forEach(w=>catMethodsSet.add(getWithdrawalPayment(w)));
+    const catMethodsList = Array.from(catMethodsSet);
+    const catMap = {};
+    activeWithdrawalsForCat.forEach(w=>{
+      const cat = w.category || 'Sem categoria';
+      const method = getWithdrawalPayment(w);
+      if(!catMap[cat]) catMap[cat] = {methods:{}, total:0, count:0};
+      if(!catMap[cat].methods[method]) catMap[cat].methods[method] = 0;
+      catMap[cat].methods[method] += Number(w.amount)||0;
+      catMap[cat].total += Number(w.amount)||0;
+      catMap[cat].count += 1;
+    });
+    const catRows = Object.keys(catMap).sort((a,b)=>catMap[b].total-catMap[a].total);
+    const catGrandByMethod = {}; catMethodsList.forEach(m=>catGrandByMethod[m]=0);
+    let catGrandTotal = 0, catGrandCount = 0;
+    catRows.forEach(cat=>{
+      catMethodsList.forEach(m=>{ catGrandByMethod[m] += (catMap[cat].methods[m]||0); });
+      catGrandTotal += catMap[cat].total;
+      catGrandCount += catMap[cat].count;
+    });
+    const wCatHead = document.getElementById('repWithdrawalCatHead');
+    if(wCatHead){
+      wCatHead.innerHTML = '<th>Categoria</th>' + catMethodsList.map(m=>`<th class="num">${escapeHtml(m)}</th>`).join('') + '<th class="num">Total</th><th class="num">Qtd.</th>';
+    }
+    const wCatBody = document.getElementById('repWithdrawalCatBody');
+    if(wCatBody){
+      wCatBody.innerHTML = (catRows.length ? catRows.map(cat=>{
+        const row = catMap[cat];
+        const cells = catMethodsList.map(m=>`<td class="num">${row.methods[m] ? fmt(row.methods[m]) : '—'}</td>`).join('');
+        return `<tr><td>${escapeHtml(cat)}</td>${cells}<td class="num"><b>${fmt(row.total)}</b></td><td class="num">${row.count}</td></tr>`;
+      }).join('') : `<tr><td colspan="${catMethodsList.length+3}" style="color:var(--ink-soft);">Nenhuma retirada no per\u00edodo selecionado.</td></tr>`)
+      + (catRows.length ? `<tr class="caixa-close-total-row"><td><b>Total</b></td>${catMethodsList.map(m=>`<td class="num"><b>${fmt(catGrandByMethod[m])}</b></td>`).join('')}<td class="num"><b>${fmt(catGrandTotal)}</b></td><td class="num"><b>${catGrandCount}</b></td></tr>` : '');
+    }
+
     const stockBody = document.getElementById('repStockBody');
     stockBody.innerHTML = products.length ? products.map(p=>{
       const low = !p.isService && (Number(p.stock)||0) <= (Number(p.minStock)||0);
@@ -3454,7 +3579,7 @@ function vendasHeaders_() {
   return ['Data','Hora','ID Venda','Tipo','Cliente','Produto','Código','Quantidade','Preço Unit.','Subtotal Item','Subtotal Venda','Desconto %','Desconto R$','Total Venda','Forma Pagamento','Partes Pagamento JSON','Itens JSON','Atualizado Em','Cancelada','Motivo Cancelamento','Cancelada Em'];
 }
 function retiradasHeaders_() {
-  return ['Data','Hora','ID','Descrição','Forma','Valor','Atualizado Em'];
+  return ['Data','Hora','ID','Descrição','Categoria','Forma','Valor','Atualizado Em'];
 }
 function produtosHeaders_() {
   return ['ID','Nome','Código','Categoria','Preço','Custo','Estoque','Estoque Mínimo','Tipo','Atualizado Em'];
@@ -3504,7 +3629,7 @@ function appendRetirada_(ss, w) {
   var sheet = getOrCreateSheet_(ss, 'Retiradas', retiradasHeaders_());
   var ids = existingIds_(sheet, 'ID', 3);
   if (ids[w.id]) return;
-  sheet.appendRow([w.date || '', w.time || '', w.id, w.description || '', w.payment || 'Dinheiro', w.amount || 0, w.updatedAt || '']);
+  sheet.appendRow([w.date || '', w.time || '', w.id, w.description || '', w.category || '', w.payment || 'Dinheiro', w.amount || 0, w.updatedAt || '']);
 }
 
 function upsertCaixa_(ss, session) {
@@ -3690,6 +3815,7 @@ function readRetiradas_(ss) {
       date: fmtDate_(r[map['Data']]),
       time: fmtTime_(r[map['Hora']]),
       description: String(r[map['Descrição']] || ''),
+      category: String(r[map['Categoria']] || ''),
       payment: String(r[map['Forma']] || 'Dinheiro'),
       amount: Number(r[map['Valor']]) || 0,
       updatedAt: fmtStamp_(r[map['Atualizado Em']])
@@ -4092,6 +4218,7 @@ async function gatherFullBackupData(){
     exportedAt: nowStamp(),
     products,
     categories,
+    withdrawalCategories,
     sales,
     withdrawals,
     cashSessions
@@ -4137,6 +4264,15 @@ async function importBackupFromFile(file){
       if(addedCats) await saveCategories();
     }
 
+    let addedWCats = 0;
+    if(Array.isArray(data.withdrawalCategories)){
+      data.withdrawalCategories.forEach(c=>{
+        const clean = String(c || '').trim().toLocaleUpperCase('pt-BR');
+        if(clean && !withdrawalCategories.some(x=>x.toLowerCase()===clean.toLowerCase())){ withdrawalCategories.push(clean); addedWCats++; }
+      });
+      if(addedWCats) await saveWithdrawalCategories();
+    }
+
     if(Array.isArray(data.sales)){
       for(const sale of data.sales){
         const imported = await saveImportedSale(sale);
@@ -4161,12 +4297,13 @@ async function importBackupFromFile(file){
     renderProductGrid();
     renderProductsTable();
     renderCategoriesList();
+    renderWithdrawalCategoryOptions(document.getElementById('wCategory'), '');
     await refreshCaixaSummary();
     await refreshRegisterDisplay();
     await refreshCaixaSessionView();
     refreshReportsLive();
 
-    backupLog(`✅ Backup importado: ${addedSales} venda(s) nova(s), ${addedW} retirada(s) nova(s), ${addedCs} sessão(ões) de caixa, ${addedCats} categoria(s) nova(s)${productsChanged?', catálogo atualizado':''}.`);
+    backupLog(`✅ Backup importado: ${addedSales} venda(s) nova(s), ${addedW} retirada(s) nova(s), ${addedCs} sessão(ões) de caixa, ${addedCats} categoria(s) nova(s), ${addedWCats} categoria(s) de retirada nova(s)${productsChanged?', catálogo atualizado':''}.`);
     showToast('Backup importado com sucesso');
   }catch(err){
     backupLog('❌ Erro ao importar backup: ' + String(err));
@@ -4192,6 +4329,8 @@ async function init(){
   await loadBranding();
   await loadProducts();
   await loadCategories();
+  await loadWithdrawalCategories();
+  renderWithdrawalCategoryOptions(document.getElementById('wCategory'), '');
   setSyncStatus(navigator.onLine ? 'Sincroniza&ccedil;&atilde;o pronta' : 'Offline: vendas locais ativadas', navigator.onLine ? 'online' : 'offline');
   renderProductGrid();
   renderCart();
