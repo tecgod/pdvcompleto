@@ -304,9 +304,9 @@
   .receipt-80 .r-total-final{font-size:15px;font-weight:700;margin-top:4px;}
   .receipt-80 .r-footer{margin-top:10px;text-align:center;font-style:italic;font-size:10.5px;}
   @media print{
-    body *{visibility:hidden;}
-    #printArea, #printArea *{visibility:visible;}
-    #printArea{display:block;position:absolute;top:0;left:0;width:100%;}
+    html, body{height:auto !important; overflow:visible !important; margin:0; padding:0;}
+    body > *:not(#printArea){display:none !important;}
+    #printArea{display:block !important; position:static !important; width:100%; height:auto !important; margin:0; padding:0;}
   }
   @page{margin:10mm;}
   body.print-mode-80{}
