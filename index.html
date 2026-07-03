@@ -406,7 +406,7 @@
             <div id="cartEmpty" class="empty-state" style="display:none; padding:30px 10px;">
               <div class="ee-icon">🟢</div>
               <strong style="display:block; color:var(--ink); font-size:15px; margin-bottom:4px;">Caixa livre</strong>
-              Pesquise e escolha um produto para iniciar uma nova venda
+              Peaquise e escolha um produto para iniciar uma nova venda
             </div>
             <div class="subtotal-row">
               <span>Subtotal</span>
@@ -603,6 +603,16 @@
             <h2>Relat&oacute;rio de vendas do per&iacute;odo</h2>
             <input type="text" id="repSalesItemSearch" placeholder="Buscar por produto, cliente ou valor... Ex: pincel, João, 150,00" style="max-width:260px;">
           </div>
+          <div class="date-range" style="margin-bottom:14px;">
+            <div class="field" style="min-width:170px;">
+              <label>Categoria do produto</label>
+              <select id="repSalesCategoryFilter"><option value="">Todas as categorias</option></select>
+            </div>
+            <div class="field" style="min-width:170px;">
+              <label>Forma de pagamento</label>
+              <select id="repSalesPaymentFilter"><option value="">Todas as formas</option></select>
+            </div>
+          </div>
           <div class="report-summary-note" id="repSalesItemSearchNote" style="display:none;"></div>
           <div class="report-table-wrap">
             <table>
@@ -634,6 +644,17 @@
         <div class="card card-pad" style="margin-top:20px;">
           <h2 style="margin-top:0;">Retiradas por categoria e forma de pagamento</h2>
           <p class="helper-text" style="margin-top:0;">Detalhamento das retiradas do per&iacute;odo selecionado acima (di&aacute;rio ou por per&iacute;odo).</p>
+          <div class="date-range" style="margin-bottom:14px;">
+            <div class="field" style="min-width:170px;">
+              <label>Categoria da retirada</label>
+              <select id="repWithdrawalCategoryFilter"><option value="">Todas as categorias</option></select>
+            </div>
+            <div class="field" style="min-width:170px;">
+              <label>Forma de pagamento</label>
+              <select id="repWithdrawalPaymentFilter"><option value="">Todas as formas</option></select>
+            </div>
+          </div>
+          <div class="report-summary-note" id="repWithdrawalFilterNote" style="display:none;"></div>
           <div class="report-table-wrap">
             <table>
               <thead><tr id="repWithdrawalCatHead"><th>Categoria</th><th class="num">Total</th><th class="num">Qtd.</th></tr></thead>
@@ -3161,6 +3182,7 @@ document.getElementById('addWithdrawalBtn').addEventListener('click', async ()=>
 /* ---------- RELATORIOS ---------- */
 let reportRunSeq = 0;
 let currentReportSales = [];
+let currentReportWithdrawals = [];
 function getSaleCustomerLabel(sale){
   return sale.saleType === 'cliente' ? (sale.customerName || 'CLIENTE') : 'BALCÃO';
 }
@@ -3178,12 +3200,101 @@ function saleMatchesSearchTerm(sale, rawTerm, normTerm){
   if(matchesCustomer) return true;
   return saleValueMatchesTerm(sale, rawTerm);
 }
+function saleItemsIncludeCategory(sale, category){
+  if(!category) return true;
+  const items = Array.isArray(sale.items) ? sale.items : [];
+  return items.some(it=>{
+    const p = products.find(pp=>String(pp.id)===String(it.productId));
+    return p && p.category === category;
+  });
+}
+function saleUsesPaymentMethod(sale, method){
+  if(!method) return true;
+  return getSalePayments(sale).some(p=>p.method===method);
+}
 function filterReportSalesByItem(sales){
   const el = document.getElementById('repSalesItemSearch');
   const raw = el ? el.value.trim() : '';
-  if(!raw) return sales;
+  const catEl = document.getElementById('repSalesCategoryFilter');
+  const payEl = document.getElementById('repSalesPaymentFilter');
+  const cat = catEl ? catEl.value : '';
+  const pay = payEl ? payEl.value : '';
+
+  let result = sales;
+  if(cat) result = result.filter(s=>saleItemsIncludeCategory(s, cat));
+  if(pay) result = result.filter(s=>saleUsesPaymentMethod(s, pay));
+  if(!raw) return result;
   const normTerm = normalizeProductName(raw);
-  return sales.filter(s=>saleMatchesSearchTerm(s, raw, normTerm));
+  return result.filter(s=>saleMatchesSearchTerm(s, raw, normTerm));
+}
+function populateReportFilterSelect(selectEl, options, placeholder){
+  if(!selectEl) return;
+  const current = selectEl.value;
+  selectEl.innerHTML = `<option value="">${escapeHtml(placeholder)}</option>`
+    + options.map(o=>`<option value="${escapeHtml(o)}" ${current===o?'selected':''}>${escapeHtml(o)}</option>`).join('');
+  if(current && options.includes(current)) selectEl.value = current;
+}
+function refreshReportFilterOptions(){
+  populateReportFilterSelect(document.getElementById('repSalesCategoryFilter'), categories.slice(), 'Todas as categorias');
+  populateReportFilterSelect(document.getElementById('repSalesPaymentFilter'), PAYMENT_METHODS.slice(), 'Todas as formas');
+  populateReportFilterSelect(document.getElementById('repWithdrawalCategoryFilter'), withdrawalCategories.slice(), 'Todas as categorias');
+  populateReportFilterSelect(document.getElementById('repWithdrawalPaymentFilter'), WITHDRAWAL_PAYMENT_METHODS.slice(), 'Todas as formas');
+}
+function renderReportWithdrawalCatTable(){
+  const wCatHead = document.getElementById('repWithdrawalCatHead');
+  const wCatBody = document.getElementById('repWithdrawalCatBody');
+  if(!wCatBody) return;
+
+  const catFilterEl = document.getElementById('repWithdrawalCategoryFilter');
+  const payFilterEl = document.getElementById('repWithdrawalPaymentFilter');
+  const catFilter = catFilterEl ? catFilterEl.value : '';
+  const payFilter = payFilterEl ? payFilterEl.value : '';
+
+  let activeWithdrawalsForCat = (currentReportWithdrawals || []).filter(w=>!w.canceled);
+  if(catFilter) activeWithdrawalsForCat = activeWithdrawalsForCat.filter(w=>(w.category || 'Sem categoria') === catFilter);
+  if(payFilter) activeWithdrawalsForCat = activeWithdrawalsForCat.filter(w=>getWithdrawalPayment(w) === payFilter);
+
+  const note = document.getElementById('repWithdrawalFilterNote');
+  if(note){
+    if(catFilter || payFilter){
+      note.style.display = 'block';
+      note.textContent = `${activeWithdrawalsForCat.length} retirada${activeWithdrawalsForCat.length===1?'':'s'} com o filtro selecionado.`;
+    } else {
+      note.style.display = 'none';
+      note.textContent = '';
+    }
+  }
+
+  const catMethodsSet = new Set(WITHDRAWAL_PAYMENT_METHODS);
+  activeWithdrawalsForCat.forEach(w=>catMethodsSet.add(getWithdrawalPayment(w)));
+  const catMethodsList = Array.from(catMethodsSet);
+  const catMap = {};
+  activeWithdrawalsForCat.forEach(w=>{
+    const cat = w.category || 'Sem categoria';
+    const method = getWithdrawalPayment(w);
+    if(!catMap[cat]) catMap[cat] = {methods:{}, total:0, count:0};
+    if(!catMap[cat].methods[method]) catMap[cat].methods[method] = 0;
+    catMap[cat].methods[method] += Number(w.amount)||0;
+    catMap[cat].total += Number(w.amount)||0;
+    catMap[cat].count += 1;
+  });
+  const catRows = Object.keys(catMap).sort((a,b)=>catMap[b].total-catMap[a].total);
+  const catGrandByMethod = {}; catMethodsList.forEach(m=>catGrandByMethod[m]=0);
+  let catGrandTotal = 0, catGrandCount = 0;
+  catRows.forEach(cat=>{
+    catMethodsList.forEach(m=>{ catGrandByMethod[m] += (catMap[cat].methods[m]||0); });
+    catGrandTotal += catMap[cat].total;
+    catGrandCount += catMap[cat].count;
+  });
+  if(wCatHead){
+    wCatHead.innerHTML = '<th>Categoria</th>' + catMethodsList.map(m=>`<th class="num">${escapeHtml(m)}</th>`).join('') + '<th class="num">Total</th><th class="num">Qtd.</th>';
+  }
+  wCatBody.innerHTML = (catRows.length ? catRows.map(cat=>{
+    const row = catMap[cat];
+    const cells = catMethodsList.map(m=>`<td class="num">${row.methods[m] ? fmt(row.methods[m]) : '—'}</td>`).join('');
+    return `<tr><td>${escapeHtml(cat)}</td>${cells}<td class="num"><b>${fmt(row.total)}</b></td><td class="num">${row.count}</td></tr>`;
+  }).join('') : `<tr><td colspan="${catMethodsList.length+3}" style="color:var(--ink-soft);">${(catFilter||payFilter) ? 'Nenhuma retirada corresponde ao filtro selecionado.' : 'Nenhuma retirada no per\u00edodo selecionado.'}</td></tr>`)
+  + (catRows.length ? `<tr class="caixa-close-total-row"><td><b>Total</b></td>${catMethodsList.map(m=>`<td class="num"><b>${fmt(catGrandByMethod[m])}</b></td>`).join('')}<td class="num"><b>${fmt(catGrandTotal)}</b></td><td class="num"><b>${catGrandCount}</b></td></tr>` : '');
 }
 function renderReportSalesTable(){
   const salesBody = document.getElementById('repSalesBody');
@@ -3225,6 +3336,10 @@ function renderReportSalesTable(){
   });
 }
 document.getElementById('repSalesItemSearch').addEventListener('input', renderReportSalesTable);
+document.getElementById('repSalesCategoryFilter').addEventListener('change', renderReportSalesTable);
+document.getElementById('repSalesPaymentFilter').addEventListener('change', renderReportSalesTable);
+document.getElementById('repWithdrawalCategoryFilter').addEventListener('change', renderReportWithdrawalCatTable);
+document.getElementById('repWithdrawalPaymentFilter').addEventListener('change', renderReportWithdrawalCatTable);
 
 function setReportToday(){
   const t = todayKey();
@@ -3497,6 +3612,7 @@ async function runReport(options={}){
   if(btn && !options.silent){ btn.disabled = true; btn.textContent = 'Gerando...'; }
 
   try{
+    refreshReportFilterOptions();
     let allSales = [];
     let allWithdrawals = [];
     for(const dk of dates){
@@ -3564,41 +3680,8 @@ async function runReport(options={}){
     topBody.innerHTML = topArr.length ? topArr.map(t=>`<tr><td>${escapeHtml(String(t.name))}</td><td class="num">${t.qty} un.</td><td class="num">${fmt(t.revenue)}</td></tr>`).join('')
       : `<tr><td colspan="3" style="color:var(--ink-soft);">Nenhum produto vendido no per&iacute;odo.</td></tr>`;
 
-    const activeWithdrawalsForCat = allWithdrawals.filter(w=>!w.canceled);
-    const catMethodsSet = new Set(WITHDRAWAL_PAYMENT_METHODS);
-    activeWithdrawalsForCat.forEach(w=>catMethodsSet.add(getWithdrawalPayment(w)));
-    const catMethodsList = Array.from(catMethodsSet);
-    const catMap = {};
-    activeWithdrawalsForCat.forEach(w=>{
-      const cat = w.category || 'Sem categoria';
-      const method = getWithdrawalPayment(w);
-      if(!catMap[cat]) catMap[cat] = {methods:{}, total:0, count:0};
-      if(!catMap[cat].methods[method]) catMap[cat].methods[method] = 0;
-      catMap[cat].methods[method] += Number(w.amount)||0;
-      catMap[cat].total += Number(w.amount)||0;
-      catMap[cat].count += 1;
-    });
-    const catRows = Object.keys(catMap).sort((a,b)=>catMap[b].total-catMap[a].total);
-    const catGrandByMethod = {}; catMethodsList.forEach(m=>catGrandByMethod[m]=0);
-    let catGrandTotal = 0, catGrandCount = 0;
-    catRows.forEach(cat=>{
-      catMethodsList.forEach(m=>{ catGrandByMethod[m] += (catMap[cat].methods[m]||0); });
-      catGrandTotal += catMap[cat].total;
-      catGrandCount += catMap[cat].count;
-    });
-    const wCatHead = document.getElementById('repWithdrawalCatHead');
-    if(wCatHead){
-      wCatHead.innerHTML = '<th>Categoria</th>' + catMethodsList.map(m=>`<th class="num">${escapeHtml(m)}</th>`).join('') + '<th class="num">Total</th><th class="num">Qtd.</th>';
-    }
-    const wCatBody = document.getElementById('repWithdrawalCatBody');
-    if(wCatBody){
-      wCatBody.innerHTML = (catRows.length ? catRows.map(cat=>{
-        const row = catMap[cat];
-        const cells = catMethodsList.map(m=>`<td class="num">${row.methods[m] ? fmt(row.methods[m]) : '—'}</td>`).join('');
-        return `<tr><td>${escapeHtml(cat)}</td>${cells}<td class="num"><b>${fmt(row.total)}</b></td><td class="num">${row.count}</td></tr>`;
-      }).join('') : `<tr><td colspan="${catMethodsList.length+3}" style="color:var(--ink-soft);">Nenhuma retirada no per\u00edodo selecionado.</td></tr>`)
-      + (catRows.length ? `<tr class="caixa-close-total-row"><td><b>Total</b></td>${catMethodsList.map(m=>`<td class="num"><b>${fmt(catGrandByMethod[m])}</b></td>`).join('')}<td class="num"><b>${fmt(catGrandTotal)}</b></td><td class="num"><b>${catGrandCount}</b></td></tr>` : '');
-    }
+    currentReportWithdrawals = allWithdrawals;
+    renderReportWithdrawalCatTable();
 
     const stockBody = document.getElementById('repStockBody');
     stockBody.innerHTML = products.length ? products.map(p=>{
