@@ -8,15 +8,18 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#E9EDE2;
+    --bg:#ECEFE3;
     --surface:#FFFFFF;
-    --ink:#1B241F;
+    --surface-soft:#F6F8F0;
+    --ink:#182019;
     --ink-soft:#5B685F;
-    --line:#D9E0D0;
+    --line:#DCE3D2;
+    --line-soft:#E8EDDF;
     --accent:#1F6E52;
-    --accent-dark:#154C39;
+    --accent-dark:#123B2C;
     --accent-soft:#DEEDE3;
     --brass:#A97C24;
+    --brass-dark:#7C5A17;
     --brass-soft:#F3E8D2;
     --slate:#3A5170;
     --slate-soft:#E4E9F1;
@@ -26,34 +29,43 @@
     --danger-soft:#F3E1DE;
     --display-bg:#0F1D18;
     --display-fg:#59E8A8;
-    --radius:10px;
-    --shadow:0 1px 2px rgba(27,36,32,.05), 0 6px 20px rgba(27,36,32,.06);
+    --radius:11px;
+    --radius-lg:16px;
+    --ease:cubic-bezier(.4,0,.2,1);
+    --shadow:0 1px 2px rgba(16,24,19,.045), 0 10px 26px -10px rgba(16,24,19,.13);
+    --shadow-lift:0 16px 34px -14px rgba(16,24,19,.22), 0 4px 10px -4px rgba(16,24,19,.10);
+    --shadow-soft:0 1px 1px rgba(16,24,19,.03), 0 4px 12px rgba(16,24,19,.05);
+  }
+  @media(prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important;}
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
-  h1,h2,h3,.display-font{font-family:'Fraunces',serif;font-weight:600;letter-spacing:-.01em;}
+  body{margin:0;background:radial-gradient(1100px 560px at 8% -8%, rgba(31,110,82,.055), transparent 60%), var(--bg);color:var(--ink);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
+  h1,h2,h3,.display-font{font-family:'Fraunces',serif;font-weight:600;letter-spacing:-.012em;}
   .app{display:flex;min-height:100vh;}
   /* Sidebar */
-  .sidebar{width:220px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:20px 14px;}
+  .sidebar{width:220px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:20px 14px;box-shadow:1px 0 0 rgba(16,24,19,.02);}
   .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 22px 8px;}
-  .brand-mark{width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-family:'Fraunces',serif;font-size:16px;flex-shrink:0;box-shadow:0 0 0 2px var(--surface), 0 0 0 3.5px var(--brass);overflow:hidden;}
+  .brand-mark{width:36px;height:36px;border-radius:50%;background:linear-gradient(155deg, var(--accent), var(--accent-dark));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-family:'Fraunces',serif;font-size:16px;flex-shrink:0;box-shadow:0 0 0 2px var(--surface), 0 0 0 3.5px var(--brass), 0 3px 8px rgba(16,24,19,.18);overflow:hidden;}
   .brand-mark img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;}
   .brand-mark.has-logo{background:transparent;}
   .brand-name{font-family:'Fraunces',serif;font-weight:600;font-size:17px;letter-spacing:-.01em;}
-  .nav-btn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:11px 12px;border:none;background:transparent;border-radius:9px;font-size:14.5px;font-weight:600;color:var(--ink-soft);cursor:pointer;margin-bottom:3px;font-family:'Inter',sans-serif;transition:background .12s,color .12s;}
-  .nav-btn:hover{background:var(--bg);color:var(--ink);}
-  .nav-btn.active{background:var(--accent-soft);color:var(--accent-dark);}
+  .nav-btn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:11px 12px;border:none;background:transparent;border-radius:9px;font-size:14.5px;font-weight:600;color:var(--ink-soft);cursor:pointer;margin-bottom:3px;font-family:'Inter',sans-serif;transition:background .16s var(--ease),color .16s var(--ease),box-shadow .16s var(--ease);position:relative;}
+  .nav-btn:hover{background:var(--surface-soft);color:var(--ink);}
+  .nav-btn.active{background:var(--accent-soft);color:var(--accent-dark);box-shadow:inset 3px 0 0 var(--accent);}
+  .nav-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
   .nav-icon{width:18px;text-align:center;flex-shrink:0;}
   .sidebar-foot{margin-top:auto;padding:16px 8px 2px;font-size:11.5px;color:var(--ink-soft);line-height:1.5;border-top:1.5px dashed var(--line);}
   /* Main */
   .main{flex:1;display:flex;flex-direction:column;min-width:0;}
   .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 26px;background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;}
   .topbar h1{font-size:20px;margin:0;font-weight:600;}
-  .register-display{background:var(--display-bg);background-image:repeating-linear-gradient(180deg, rgba(255,255,255,.025) 0px, rgba(255,255,255,.025) 1px, transparent 1px, transparent 3px);border-radius:10px;padding:8px 18px;display:flex;align-items:center;gap:12px;box-shadow:inset 0 0 0 1px rgba(89,232,168,.14);}
+  .register-display{background:var(--display-bg);background-image:repeating-linear-gradient(180deg, rgba(255,255,255,.025) 0px, rgba(255,255,255,.025) 1px, transparent 1px, transparent 3px);border-radius:10px;padding:8px 18px;display:flex;align-items:center;gap:12px;box-shadow:inset 0 0 0 1px rgba(89,232,168,.14), inset 0 1px 10px rgba(0,0,0,.3), 0 2px 8px rgba(16,24,19,.12);}
   .register-label{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.5px;color:#4E9A7D;text-transform:uppercase;}
-  .register-value{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--display-fg);text-shadow:0 0 10px rgba(89,232,168,.4);letter-spacing:.5px;font-variant-numeric:tabular-nums;}
-  .register-toggle-btn{font-family:'Inter',sans-serif;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;border:1px solid rgba(89,232,168,.3);background:rgba(89,232,168,.1);color:var(--display-fg);border-radius:7px;padding:6px 8px;cursor:pointer;}
-  .register-toggle-btn:hover{background:rgba(89,232,168,.16);}
+  .register-value{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--display-fg);text-shadow:0 0 10px rgba(89,232,168,.45);letter-spacing:.5px;font-variant-numeric:tabular-nums;animation:registerGlow 4s ease-in-out infinite;}
+  @keyframes registerGlow{0%,100%{text-shadow:0 0 10px rgba(89,232,168,.4);}50%{text-shadow:0 0 15px rgba(89,232,168,.65);}}
+  .register-toggle-btn{font-family:'Inter',sans-serif;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;border:1px solid rgba(89,232,168,.3);background:rgba(89,232,168,.1);color:var(--display-fg);border-radius:7px;padding:6px 8px;cursor:pointer;transition:background .12s var(--ease);}
+  .register-toggle-btn:hover{background:rgba(89,232,168,.18);}
   .content{padding:24px 26px 60px;max-width:1200px;width:100%;margin:0 auto;flex:1;}
   .view{display:none;}
   .view.active{display:block;}
@@ -63,13 +75,14 @@
   .grid-2{display:grid;grid-template-columns:1.5fr 1fr;gap:20px;align-items:start;}
   @media(max-width:920px){.grid-2{grid-template-columns:1fr;}}
   /* Buttons */
-  .btn{font-family:'Inter',sans-serif;font-weight:600;font-size:14px;border-radius:9px;border:1px solid transparent;padding:10px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:filter .12s, transform .05s;}
+  .btn{font-family:'Inter',sans-serif;font-weight:600;font-size:14px;border-radius:9px;border:1px solid transparent;padding:10px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:filter .12s var(--ease), transform .05s var(--ease), box-shadow .16s var(--ease);}
   .btn:active{transform:scale(.98);}
-  .btn-primary{background:var(--accent);color:#fff;}
-  .btn-primary:hover{filter:brightness(1.08);}
-  .btn-primary:disabled{background:#C3CBBE;cursor:not-allowed;}
+  .btn:focus-visible{outline:2px solid var(--accent-dark);outline-offset:2px;}
+  .btn-primary{background:linear-gradient(155deg, var(--accent), var(--accent-dark));color:#fff;box-shadow:0 1px 2px rgba(16,24,19,.1), 0 4px 12px -4px rgba(18,59,44,.4);}
+  .btn-primary:hover{filter:brightness(1.08);box-shadow:0 2px 4px rgba(16,24,19,.12), 0 8px 18px -6px rgba(18,59,44,.5);}
+  .btn-primary:disabled{background:#C3CBBE;box-shadow:none;cursor:not-allowed;}
   .btn-ghost{background:transparent;color:var(--ink-soft);border-color:var(--line);}
-  .btn-ghost:hover{background:var(--bg);color:var(--ink);}
+  .btn-ghost:hover{background:var(--surface-soft);color:var(--ink);border-color:var(--ink-soft);}
   .btn-danger{background:var(--danger-soft);color:var(--danger);}
   .btn-danger:hover{filter:brightness(0.97);}
   .btn-warn{background:var(--warn);color:#fff;}
@@ -77,7 +90,7 @@
   .btn-block{width:100%;justify-content:center;}
   /* Forms */
   label{font-size:12.5px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:5px;}
-  input,select{width:100%;font-family:'Inter',sans-serif;font-size:14px;padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);}
+  input,select{width:100%;font-family:'Inter',sans-serif;font-size:14px;padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);transition:border-color .14s var(--ease), box-shadow .14s var(--ease);}
   input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
   .force-uppercase{text-transform:uppercase;}
   .field{margin-bottom:14px;}
@@ -99,29 +112,32 @@
   .sale-results-grid{margin-bottom:12px;}
   .sale-results-grid:empty{display:none;}
   .sale-result-title{grid-column:1/-1;font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.4px;margin:2px 0 -4px;}
-  .product-tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:13px;cursor:pointer;text-align:left;transition:border-color .12s, transform .05s;}
-  .product-tile:hover{border-color:var(--accent);}
+  .product-tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:13px;cursor:pointer;text-align:left;transition:border-color .14s var(--ease), transform .14s var(--ease), box-shadow .14s var(--ease);}
+  .product-tile:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow-soft);}
   .product-tile:active{transform:scale(.97);}
+  .product-tile:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
   .product-tile .pname{font-weight:600;font-size:13.5px;margin-bottom:6px;line-height:1.3;}
   .product-tile .pprice{font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--accent-dark);font-size:14px;font-variant-numeric:tabular-nums;}
   .product-tile .pstock{font-size:11px;color:var(--ink-soft);margin-top:4px;}
   .product-tile .pstock.low{color:var(--warn);font-weight:600;}
   .product-tile.disabled{opacity:.45;cursor:not-allowed;}
-  .product-tile.selected{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 2px var(--accent) inset;}
+  .product-tile.selected{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 2px var(--accent) inset, var(--shadow-soft);transform:translateY(-2px);}
   /* Cart */
   .cart-item{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--line);}
   .cart-item:last-child{border-bottom:none;}
   .cart-item .ci-name{flex:1;font-size:13.5px;font-weight:600;}
   .cart-item .ci-price{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums;}
   .qty-ctrl{display:flex;align-items:center;gap:6px;}
-  .qty-ctrl button{width:24px;height:24px;border-radius:6px;border:1px solid var(--line);background:#fff;cursor:pointer;font-weight:700;color:var(--ink);}
+  .qty-ctrl button{width:24px;height:24px;border-radius:6px;border:1px solid var(--line);background:#fff;cursor:pointer;font-weight:700;color:var(--ink);transition:background .12s var(--ease), border-color .12s var(--ease);}
+  .qty-ctrl button:hover{background:var(--surface-soft);border-color:var(--accent);}
   .qty-ctrl span{min-width:20px;text-align:center;font-weight:600;font-size:13px;}
   .cart-total-row{display:flex;justify-content:space-between;align-items:baseline;padding:16px 0 6px;border-top:2px dashed var(--line);margin-top:6px;}
   .cart-total-row .tot-label{font-size:13px;color:var(--ink-soft);font-weight:600;}
   .cart-total-row .tot-value{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;}
   .pay-methods{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 14px;}
-  .pay-btn{padding:10px 4px;border-radius:9px;border:1.5px solid var(--line);background:#fff;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink-soft);}
+  .pay-btn{padding:10px 4px;border-radius:9px;border:1.5px solid var(--line);background:#fff;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink-soft);transition:border-color .14s var(--ease), background .14s var(--ease), color .14s var(--ease);}
   .pay-btn.selected{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-dark);}
+  .pay-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
   .split-payment-box{border:1px solid var(--line);border-radius:10px;padding:12px;margin:8px 0 14px;background:var(--bg);}
   .split-payment-box.hidden{display:none;}
   .split-payment-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;}
@@ -137,11 +153,14 @@
   .empty-state .ee-icon{font-size:34px;margin-bottom:10px;}
   /* Table */
   table{width:100%;border-collapse:collapse;font-size:13.5px;}
-  th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-soft);padding:9px 10px;border-bottom:1px solid var(--line);}
-  td{padding:11px 10px;border-bottom:1px solid var(--line);}
+  th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);padding:9px 10px;border-bottom:1.5px solid var(--line);}
+  td{padding:11px 10px;border-bottom:1px solid var(--line-soft);}
   tr:last-child td{border-bottom:none;}
+  tbody tr{transition:background .12s var(--ease);}
+  tbody tr:hover{background:var(--surface-soft);}
   td.num,th.num{text-align:right;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;}
-  .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;}
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:700;}
+  .badge::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0;}
   .badge-low{background:var(--warn-soft);color:var(--warn);}
   .badge-ok{background:var(--accent-soft);color:var(--accent-dark);}
   .badge-service{background:var(--slate-soft);color:var(--slate);}
@@ -159,25 +178,29 @@
   .caixa-close-table th:first-child,.caixa-close-table td:first-child{text-align:left;}
   .caixa-close-table input{width:100px;text-align:right;padding:6px 8px;font-size:13px;}
   .caixa-close-total-row td{font-weight:700;border-top:2px solid var(--line);border-bottom:none;padding-top:10px;}
-  .section-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .section-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
   .section-title h2{font-size:16.5px;margin:0;}
   .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
   @media(max-width:880px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
-  .stat-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);}
+  .stat-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden;}
+  .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg, var(--accent), var(--brass));opacity:.55;}
   .stat-card .s-label{font-size:11.5px;color:var(--ink-soft);font-weight:600;text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px;}
   .stat-card .s-value{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;}
   .stat-card .s-sub{font-size:11.5px;color:var(--ink-soft);margin-top:4px;}
-  .modal-overlay{position:fixed;inset:0;background:rgba(15,20,30,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;}
-  .modal{background:#fff;border-radius:14px;padding:24px;width:100%;max-width:420px;max-height:90vh;overflow:auto;}
+  .modal-overlay{position:fixed;inset:0;background:rgba(12,17,14,.5);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;animation:overlayIn .16s var(--ease);}
+  .modal{background:#fff;border-radius:var(--radius-lg);padding:24px;width:100%;max-width:420px;max-height:90vh;overflow:auto;box-shadow:var(--shadow-lift);animation:modalIn .18s var(--ease);}
   .modal h3{margin:0 0 16px;font-size:17px;}
-  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:10px;font-size:13.5px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.2);z-index:100;opacity:0;transition:opacity .2s, transform .2s;pointer-events:none;}
+  @keyframes overlayIn{from{opacity:0;}to{opacity:1;}}
+  @keyframes modalIn{from{opacity:0;transform:translateY(6px) scale(.98);}to{opacity:1;transform:translateY(0) scale(1);}}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:10px;font-size:13.5px;font-weight:600;box-shadow:0 12px 28px -8px rgba(16,24,19,.35);z-index:100;opacity:0;transition:opacity .2s var(--ease), transform .2s var(--ease);pointer-events:none;}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
   .row-actions{display:flex;gap:6px;}
   .date-range{display:flex;gap:10px;align-items:end;margin-bottom:20px;flex-wrap:wrap;}
   .date-range .field{margin-bottom:0;min-width:150px;}
   .low-stock-flag{color:var(--warn);font-weight:700;}
   ::-webkit-scrollbar{width:9px;height:9px;}
-  ::-webkit-scrollbar-thumb{background:#C7D0BE;border-radius:99px;}
+  ::-webkit-scrollbar-thumb{background:#C4CDB8;border-radius:99px;}
+  ::-webkit-scrollbar-thumb:hover{background:#AEB8A0;}
   .helper-text{font-size:12px;color:var(--ink-soft);margin-top:-8px;margin-bottom:14px;}
   .report-table-wrap{width:100%;overflow:auto;}
   .report-table-wrap table{min-width:760px;}
@@ -194,8 +217,7 @@
   .subtotal-row{display:flex;justify-content:space-between;align-items:baseline;padding-top:10px;font-size:13px;color:var(--ink-soft);}
   .cat-chip{display:inline-flex;align-items:center;gap:7px;background:var(--accent-soft);color:var(--accent-dark);padding:6px 10px 6px 12px;border-radius:99px;font-size:12.5px;font-weight:600;}
   .cat-chip button{border:none;background:transparent;cursor:pointer;color:var(--accent-dark);font-weight:800;font-size:14px;line-height:1;padding:2px;}
-  .cat-chip button:hover{opacity:.6;}
-  .cat-row{display:flex;gap:8px;margin-bottom:14px;}
+  .cat-chip button:hover{opacity:.6;}  .cat-row{display:flex;gap:8px;margin-bottom:14px;}
   .cat-row input{flex:1;}
   .cat-list{display:flex;flex-wrap:wrap;gap:8px;}
   .field-inline-btn{display:flex;gap:8px;}
@@ -260,6 +282,7 @@
     .qty-ctrl{width:100%;justify-content:flex-end;}
     .ci-top{align-items:flex-start;}
     .section-title{align-items:flex-start;gap:10px;}
+    #repSalesItemSearch{max-width:none;width:100%;}
     .section-title h2{font-size:15.5px;}
     .stat-grid,.caixa-stat-grid{grid-template-columns:1fr 1fr;gap:10px;}
     .stat-card{padding:13px 14px;}
@@ -364,7 +387,7 @@
             <div class="sale-search-panel">
               <label>Pesquisar produto</label>
               <div class="search-row sale-search-row">
-                <input type="text" id="searchProduct" class="force-uppercase" placeholder="Digite nome, código ou use %PALAVRA para listar relacionados...">
+                <input type="text" id="searchProduct" class="force-uppercase" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Digite nome, código ou use %PALAVRA para listar relacionados...">
                 <button type="button" class="btn btn-ghost btn-sm quick-sale-btn" id="quickProductBtn" title="Cadastrar produto rápido sem sair da venda">+ Produto</button>
               </div>
               <div class="helper-text sale-search-help">Use <b>%</b> antes da palavra para listar todos os produtos que contenham essa parte do nome. Ex: <b>%VEDA</b>.</div>
@@ -576,7 +599,11 @@
         </div>
 
         <div class="card card-pad" style="margin-bottom:20px;">
-          <div class="section-title"><h2>Relat&oacute;rio de vendas do per&iacute;odo</h2></div>
+          <div class="section-title">
+            <h2>Relat&oacute;rio de vendas do per&iacute;odo</h2>
+            <input type="text" id="repSalesItemSearch" placeholder="Buscar venda por produto... Ex: pincel" style="max-width:260px;">
+          </div>
+          <div class="report-summary-note" id="repSalesItemSearchNote" style="display:none;"></div>
           <div class="report-table-wrap">
             <table>
               <thead>
@@ -2788,7 +2815,18 @@ function openProductModal(id, options={}){
     </div>`;
   document.body.appendChild(overlay);
   overlay.querySelectorAll('.force-uppercase').forEach(forceUppercaseValue);
-  document.getElementById('mCancel').onclick = ()=>overlay.remove();
+  function closeProductModal(){
+    document.removeEventListener('keydown', handleProductModalEscape);
+    overlay.remove();
+  }
+  function handleProductModalEscape(e){
+    if(e.key === 'Escape'){
+      e.preventDefault();
+      closeProductModal();
+    }
+  }
+  document.addEventListener('keydown', handleProductModalEscape);
+  document.getElementById('mCancel').onclick = closeProductModal;
   // Não fecha o cadastro/edição de produto ao clicar fora do modal.
   // Isso evita perder o preenchimento ao selecionar/apagar texto e soltar o mouse fora do campo.
   const productFieldOrder = ['mName','mCode','mCategory','mPrice','mCost','mStock','mMinStock'];
@@ -2878,13 +2916,13 @@ function openProductModal(id, options={}){
     syncProductsIfAuto();
 
     if(editing){
-      overlay.remove();
+      closeProductModal();
       showToast('Produto atualizado');
       return;
     }
 
     if(quickSale){
-      overlay.remove();
+      closeProductModal();
       const searchEl = document.getElementById('searchProduct');
       if(searchEl) searchEl.value = savedProduct.name;
       renderProductGrid();
@@ -3123,6 +3161,57 @@ document.getElementById('addWithdrawalBtn').addEventListener('click', async ()=>
 /* ---------- RELATORIOS ---------- */
 let reportRunSeq = 0;
 let currentReportSales = [];
+function saleItemsMatchTerm(sale, normTerm){
+  const items = Array.isArray(sale.items) ? sale.items : [];
+  return items.some(it=> normalizeProductName(it.name).includes(normTerm) || normalizeProductName(it.code||'').includes(normTerm));
+}
+function filterReportSalesByItem(sales){
+  const el = document.getElementById('repSalesItemSearch');
+  const raw = el ? el.value.trim() : '';
+  if(!raw) return sales;
+  const normTerm = normalizeProductName(raw);
+  return sales.filter(s=>saleItemsMatchTerm(s, normTerm));
+}
+function renderReportSalesTable(){
+  const salesBody = document.getElementById('repSalesBody');
+  if(!salesBody) return;
+  const searchEl = document.getElementById('repSalesItemSearch');
+  const rawTerm = searchEl ? searchEl.value.trim() : '';
+  const filtered = filterReportSalesByItem(currentReportSales);
+
+  const note = document.getElementById('repSalesItemSearchNote');
+  if(note){
+    if(rawTerm){
+      note.style.display = 'block';
+      note.textContent = `${filtered.length} venda${filtered.length===1?'':'s'} com "${rawTerm.toLocaleUpperCase('pt-BR')}" no per\u00edodo selecionado.`;
+    } else {
+      note.style.display = 'none';
+      note.textContent = '';
+    }
+  }
+
+  salesBody.innerHTML = filtered.length ? filtered.map(s=>{
+    const customer = s.saleType === 'cliente' ? (s.customerName || 'CLIENTE') : 'BALCÃO';
+    const discount = Number(s.discountValue)||0;
+    const canceledStyle = s.canceled ? ' style="opacity:.55;"' : '';
+    const canceledBadge = s.canceled ? ' <span class="badge badge-low">Cancelada</span>' : '';
+    return `<tr${canceledStyle}>
+      <td><b>#${escapeHtml(saleShortId(s))}</b>${canceledBadge}</td>
+      <td>${formatDateBR(s.date)}</td>
+      <td>${escapeHtml(String(s.time||'--'))}</td>
+      <td>${escapeHtml(String(customer))}</td>
+      <td class="report-items">${safeItemsHtml(s.items)}</td>
+      <td>${escapeHtml(getSalePaymentLabel(s))}</td>
+      <td class="num">${discount ? fmt(discount) : '-'}</td>
+      <td class="num"><b>${fmt(safeSaleTotal(s))}</b></td>
+      <td><button type="button" class="report-click-btn" data-sale-detail="${escapeHtml(String(s.id||''))}">Detalhar</button></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="9" style="color:var(--ink-soft);">${rawTerm ? 'Nenhuma venda do per\u00edodo cont\u00e9m esse produto.' : 'Nenhuma venda no per\u00edodo selecionado.'}</td></tr>`;
+  salesBody.querySelectorAll('[data-sale-detail]').forEach(btn=>{
+    btn.addEventListener('click', ()=>openSaleDetailModal(btn.dataset.saleDetail));
+  });
+}
+document.getElementById('repSalesItemSearch').addEventListener('input', renderReportSalesTable);
 
 function setReportToday(){
   const t = todayKey();
@@ -3447,27 +3536,7 @@ async function runReport(options={}){
     const label = document.getElementById('repPeriodLabel');
     if(label){ label.textContent = `Relat\u00f3rio em tempo real: ${formatDateBR(start)} at\u00e9 ${formatDateBR(end)}.`; }
 
-    const salesBody = document.getElementById('repSalesBody');
-    salesBody.innerHTML = allSales.length ? allSales.map(s=>{
-      const customer = s.saleType === 'cliente' ? (s.customerName || 'CLIENTE') : 'BALCÃO';
-      const discount = Number(s.discountValue)||0;
-      const canceledStyle = s.canceled ? ' style="opacity:.55;"' : '';
-      const canceledBadge = s.canceled ? ' <span class="badge badge-low">Cancelada</span>' : '';
-      return `<tr${canceledStyle}>
-        <td><b>#${escapeHtml(saleShortId(s))}</b>${canceledBadge}</td>
-        <td>${formatDateBR(s.date)}</td>
-        <td>${escapeHtml(String(s.time||'--'))}</td>
-        <td>${escapeHtml(String(customer))}</td>
-        <td class="report-items">${safeItemsHtml(s.items)}</td>
-        <td>${escapeHtml(getSalePaymentLabel(s))}</td>
-        <td class="num">${discount ? fmt(discount) : '-'}</td>
-        <td class="num"><b>${fmt(safeSaleTotal(s))}</b></td>
-        <td><button type="button" class="report-click-btn" data-sale-detail="${escapeHtml(String(s.id||''))}">Detalhar</button></td>
-      </tr>`;
-    }).join('') : `<tr><td colspan="9" style="color:var(--ink-soft);">Nenhuma venda no período selecionado.</td></tr>`;
-    salesBody.querySelectorAll('[data-sale-detail]').forEach(btn=>{
-      btn.addEventListener('click', ()=>openSaleDetailModal(btn.dataset.saleDetail));
-    });
+    renderReportSalesTable();
 
     const payBody = document.getElementById('repPaymentBody');
     const payKeys = Object.keys(Object.assign({}, financial.byIn, financial.byOut));
