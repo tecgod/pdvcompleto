@@ -443,6 +443,10 @@
             <button class="btn btn-primary" id="newProductBtn">+ Novo produto</button>
           </div>
         </div>
+        <div class="search-row" style="margin-bottom:12px;">
+          <input type="text" id="productsSearchInput" placeholder="Buscar por nome, código ou categoria antes de cadastrar...">
+          <button type="button" class="btn btn-ghost btn-sm" id="productsSearchClearBtn" style="display:none;">Limpar</button>
+        </div>
         <div class="card">
           <table id="productsTable">
             <thead>
@@ -452,7 +456,7 @@
           </table>
           <div id="productsEmpty" class="empty-state" style="display:none;">
             <div class="ee-icon">📦</div>
-            Nenhum produto cadastrado ainda. Clique em "Novo produto" para começar.
+            <span id="productsEmptyText">Nenhum produto cadastrado ainda. Clique em "Novo produto" para começar.</span>
           </div>
         </div>
       </div>
@@ -1750,29 +1754,133 @@ function levenshteinDistance(a, b){
   }
   return prev[n];
 }
+function tokenizeProductName(s){
+  return normalizeProductName(s)
+    .replace(/[.,;:/\\_-]+/g,' ')
+    .split(/\s+/)
+    .filter(t=>t.length>=3);
+}
 function findPossibleDuplicateProduct(name, code, excludeId){
   const normName = normalizeProductName(name);
   const normCode = String(code||'').trim().toLocaleUpperCase('pt-BR');
-  let bestSimilar = null;
-  for(const p of products){
-    if(excludeId && String(p.id)===String(excludeId)) continue;
+  const nameTokens = tokenizeProductName(name);
+  const candidates = products.filter(p=> !(excludeId && String(p.id)===String(excludeId)));
+
+  // 1) Mesmo código cadastrado
+  for(const p of candidates){
     if(normCode && p.code && String(p.code).trim().toLocaleUpperCase('pt-BR')===normCode){
       return {product:p, reason:'code'};
     }
+  }
+
+  // 2) Nome idêntico (após normalização)
+  for(const p of candidates){
     const pName = normalizeProductName(p.name);
     if(pName === normName){
       return {product:p, reason:'exact'};
     }
+  }
+
+  // 3) Um nome "contido" no outro por palavras — ex.: "Baratol" já existe dentro de
+  // "Insedes Inseticida. Baratol, seringa" cadastrado anteriormente.
+  if(nameTokens.length){
+    for(const p of candidates){
+      const pTokens = tokenizeProductName(p.name);
+      if(!pTokens.length) continue;
+      const shorter = nameTokens.length <= pTokens.length ? nameTokens : pTokens;
+      const longer = nameTokens.length <= pTokens.length ? pTokens : nameTokens;
+      const longerSet = new Set(longer);
+      if(shorter.length && shorter.every(t=>longerSet.has(t))){
+        return {product:p, reason:'token'};
+      }
+    }
+
+    // 3b) Sobreposição aproximada de palavras — cobre erros de digitação em uma
+    // das palavras e palavras fora de ordem (ex.: "Detergente Ipê Neutro" vs
+    // "Detergente Ype Neutro 500ml").
+    let bestTokenMatch = null;
+    for(const p of candidates){
+      const pTokens = tokenizeProductName(p.name);
+      if(!pTokens.length) continue;
+      const shorter = nameTokens.length <= pTokens.length ? nameTokens : pTokens;
+      const longer = nameTokens.length <= pTokens.length ? pTokens : nameTokens;
+      if(!shorter.length) continue;
+      let matched = 0;
+      for(const t of shorter){
+        if(longer.some(u=>tokensAreSimilar(t,u))) matched++;
+      }
+      const ratio = matched / shorter.length;
+      if(ratio >= 0.7 && (!bestTokenMatch || ratio > bestTokenMatch.ratio)){
+        bestTokenMatch = {product:p, reason:'similar', ratio};
+      }
+    }
+    if(bestTokenMatch) return bestTokenMatch;
+  }
+
+  // 4) Similaridade aproximada do nome inteiro (erros de digitação, variações leves)
+  let bestSimilar = null;
+  for(const p of candidates){
+    const pName = normalizeProductName(p.name);
     const maxLen = Math.max(pName.length, normName.length) || 1;
     const similarity = 1 - (levenshteinDistance(pName, normName) / maxLen);
-    if(similarity >= 0.85 && (!bestSimilar || similarity > bestSimilar.similarity)){
+    if(similarity >= 0.78 && (!bestSimilar || similarity > bestSimilar.similarity)){
       bestSimilar = {product:p, reason:'similar', similarity};
     }
   }
   return bestSimilar;
 }
+function tokensAreSimilar(a, b){
+  if(a===b) return true;
+  if(a.length<4 || b.length<4) return false;
+  const maxLen = Math.max(a.length, b.length);
+  const similarity = 1 - (levenshteinDistance(a,b) / maxLen);
+  return similarity >= 0.75;
+}
 function escapeHtml(s){
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function showYesNoModal(title, message, opts){
+  const confirmText = (opts && opts.confirmText) || 'Sim';
+  const cancelText = (opts && opts.cancelText) || 'Não';
+  return new Promise(resolve=>{
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:400px;">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="helper-text" style="margin-top:-4px; white-space:pre-line; color:var(--text, inherit);">${escapeHtml(message)}</div>
+        <div style="display:flex; gap:8px; margin-top:16px;">
+          <button class="btn btn-ghost btn-block" id="yesNoCancelBtn">${escapeHtml(cancelText)}</button>
+          <button class="btn btn-primary btn-block" id="yesNoConfirmBtn">${escapeHtml(confirmText)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const confirmBtn = overlay.querySelector('#yesNoConfirmBtn');
+    const cancelBtn = overlay.querySelector('#yesNoCancelBtn');
+    let done = false;
+    const finish = (result)=>{
+      if(done) return;
+      done = true;
+      overlay.remove();
+      resolve(result);
+    };
+    confirmBtn.onclick = ()=>finish(true);
+    cancelBtn.onclick = ()=>finish(false);
+    overlay.addEventListener('click', e=>{ if(e.target===overlay) finish(false); });
+    overlay.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){
+        e.preventDefault();
+        finish(document.activeElement===cancelBtn ? false : true);
+      } else if(e.key==='Escape'){
+        e.preventDefault();
+        finish(false);
+      } else if(e.key==='ArrowLeft' || e.key==='ArrowRight'){
+        e.preventDefault();
+        (document.activeElement===confirmBtn ? cancelBtn : confirmBtn).focus();
+      }
+    });
+    requestAnimationFrame(()=>confirmBtn.focus());
+  });
 }
 function addQtyToCart(productId, qty){
   const p = products.find(x=>x.id===productId);
@@ -2348,15 +2456,38 @@ document.getElementById('newCategoryInput').addEventListener('keydown', (e)=>{
 });
 
 /* ---------- PRODUTOS ---------- */
+function getProductsSearchTerm(){
+  const el = document.getElementById('productsSearchInput');
+  return el ? el.value.trim().toLocaleLowerCase('pt-BR') : '';
+}
 function renderProductsTable(){
   const body = document.getElementById('productsTableBody');
   const emptyEl = document.getElementById('productsEmpty');
+  const emptyTextEl = document.getElementById('productsEmptyText');
+  const clearBtn = document.getElementById('productsSearchClearBtn');
+  const term = getProductsSearchTerm();
+  if(clearBtn) clearBtn.style.display = term ? 'inline-flex' : 'none';
+
   if(products.length===0){
     body.innerHTML=''; emptyEl.style.display='block';
+    if(emptyTextEl) emptyTextEl.textContent = 'Nenhum produto cadastrado ainda. Clique em "Novo produto" para começar.';
+    return;
+  }
+
+  const list = term ? products.filter(p=>{
+    const name = (p.name||'').toLocaleLowerCase('pt-BR');
+    const code = (p.code||'').toLocaleLowerCase('pt-BR');
+    const category = (p.category||'').toLocaleLowerCase('pt-BR');
+    return name.includes(term) || code.includes(term) || category.includes(term);
+  }) : products;
+
+  if(list.length===0){
+    body.innerHTML=''; emptyEl.style.display='block';
+    if(emptyTextEl) emptyTextEl.textContent = `Nenhum produto encontrado para "${term}". Confira antes de cadastrar um novo.`;
     return;
   }
   emptyEl.style.display='none';
-  body.innerHTML = products.map(p=>{
+  body.innerHTML = list.map(p=>{
     const low = !p.isService && p.stock <= p.minStock;
     return `<tr>
       <td>${escapeHtml(p.name)}</td>
@@ -2390,6 +2521,13 @@ async function deleteProduct(id){
   syncProductsIfAuto();
 }
 document.getElementById('newProductBtn').addEventListener('click', ()=>openProductModal(null, {keepOpen:true}));
+document.getElementById('productsSearchInput').addEventListener('input', ()=>renderProductsTable());
+document.getElementById('productsSearchClearBtn').addEventListener('click', ()=>{
+  const el = document.getElementById('productsSearchInput');
+  el.value = '';
+  el.focus();
+  renderProductsTable();
+});
 
 function openQuickProductFromSales(prefill){
   const searchEl = document.getElementById('searchProduct');
@@ -2508,8 +2646,9 @@ function openProductModal(id, options={}){
     if(dup){
       const msg = dup.reason==='code'
         ? `Já existe um produto cadastrado com o código "${dup.product.code}": ${dup.product.name}.`
-        : `Possível produto duplicado: já existe "${dup.product.name}" cadastrado no catálogo.`;
-      if(!confirm(msg + '\n\nDeseja cadastrar/salvar mesmo assim?')){
+        : `Já existe um produto parecido: "${dup.product.name}".`;
+      const proceed = await showYesNoModal('Possível duplicidade', msg + '\n\nDeseja continuar o cadastro?');
+      if(!proceed){
         focusAndSelect(document.getElementById('mName'));
         return;
       }
