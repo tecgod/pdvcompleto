@@ -518,13 +518,24 @@
         <div class="grid-2">
           <div class="card card-pad">
             <div class="section-title"><h2>Retiradas de hoje</h2></div>
+            <div class="date-range" style="margin-bottom:14px;">
+              <div class="field" style="min-width:150px;">
+                <label>Categoria</label>
+                <select id="todayWFilterCategory"><option value="">Todas as categorias</option></select>
+              </div>
+              <div class="field" style="min-width:150px;">
+                <label>Forma de pagamento</label>
+                <select id="todayWFilterPayment"><option value="">Todas as formas</option></select>
+              </div>
+            </div>
+            <div class="report-summary-note" id="todayWFilterSummary" style="display:none;"></div>
             <table>
               <thead><tr><th>Hora</th><th>Descrição</th><th>Categoria</th><th>Forma</th><th class="num">Valor</th><th></th></tr></thead>
               <tbody id="withdrawalsTableBody"></tbody>
             </table>
             <div id="withdrawalsEmpty" class="empty-state" style="display:none;">
               <div class="ee-icon">💸</div>
-              Nenhuma retirada registrada hoje.
+              <span id="withdrawalsEmptyText">Nenhuma retirada registrada hoje.</span>
             </div>
           </div>
           <div class="card card-pad">
@@ -2972,13 +2983,51 @@ async function refreshCaixaView(){
   const dk = todayKey();
   todayWithdrawals = await loadDayWithdrawals(dk);
   todayWithdrawals = Array.isArray(todayWithdrawals) ? todayWithdrawals : [];
+  populateReportFilterSelect(document.getElementById('todayWFilterCategory'), withdrawalCategories.slice(), 'Todas as categorias');
+  populateReportFilterSelect(document.getElementById('todayWFilterPayment'), WITHDRAWAL_PAYMENT_METHODS.slice(), 'Todas as formas');
+  renderWithdrawalsTodayTable();
+}
+function filterTodayWithdrawals(list){
+  const catEl = document.getElementById('todayWFilterCategory');
+  const payEl = document.getElementById('todayWFilterPayment');
+  const cat = catEl ? catEl.value : '';
+  const pay = payEl ? payEl.value : '';
+  let result = list;
+  if(cat) result = result.filter(w=>(w.category||'Sem categoria')===cat);
+  if(pay) result = result.filter(w=>getWithdrawalPayment(w)===pay);
+  return result;
+}
+function renderWithdrawalsTodayTable(){
+  const dk = todayKey();
   const body = document.getElementById('withdrawalsTableBody');
   const emptyEl = document.getElementById('withdrawalsEmpty');
-  if(todayWithdrawals.length===0){
-    body.innerHTML=''; emptyEl.style.display='block';
+  const emptyTextEl = document.getElementById('withdrawalsEmptyText');
+  const summaryEl = document.getElementById('todayWFilterSummary');
+  if(!body) return;
+
+  const catEl = document.getElementById('todayWFilterCategory');
+  const payEl = document.getElementById('todayWFilterPayment');
+  const hasFilter = !!((catEl && catEl.value) || (payEl && payEl.value));
+  const filtered = filterTodayWithdrawals(todayWithdrawals);
+
+  if(summaryEl){
+    if(hasFilter){
+      const total = filtered.reduce((a,w)=>a+(Number(w.amount)||0),0);
+      summaryEl.style.display = 'block';
+      summaryEl.textContent = `${filtered.length} retirada${filtered.length===1?'':'s'} encontrada${filtered.length===1?'':'s'} · Total: ${fmt(total)}`;
+    } else {
+      summaryEl.style.display = 'none';
+      summaryEl.textContent = '';
+    }
+  }
+
+  if(filtered.length===0){
+    body.innerHTML='';
+    if(emptyEl) emptyEl.style.display='block';
+    if(emptyTextEl) emptyTextEl.textContent = hasFilter ? 'Nenhuma retirada corresponde ao filtro selecionado.' : 'Nenhuma retirada registrada hoje.';
   } else {
-    emptyEl.style.display='none';
-    body.innerHTML = todayWithdrawals.map(w=>`
+    if(emptyEl) emptyEl.style.display='none';
+    body.innerHTML = filtered.map(w=>`
       <tr>
         <td>${escapeHtml(String(w.time||'--'))}</td>
         <td>${escapeHtml(w.description||'—')}</td>
@@ -3011,6 +3060,8 @@ async function refreshCaixaView(){
     });
   }
 }
+document.getElementById('todayWFilterCategory').addEventListener('change', renderWithdrawalsTodayTable);
+document.getElementById('todayWFilterPayment').addEventListener('change', renderWithdrawalsTodayTable);
 
 function openWithdrawalEditModal(withdrawal, dateKey){
   const overlay = document.createElement('div');
