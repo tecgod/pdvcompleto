@@ -276,7 +276,40 @@
     .toast.show{transform:translateY(-4px);}
   }
 
+  /* ---------- Impressão de comprovantes ---------- */
+  #printArea{display:none;}
+  .receipt{font-family:'JetBrains Mono',monospace;color:#000;}
+  .receipt-a4{width:190mm;padding:10mm;font-family:'Sora',sans-serif;font-size:13px;}
+  .receipt-a4 .r-header{text-align:center;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:14px;}
+  .receipt-a4 .r-store{font-size:20px;font-weight:700;}
+  .receipt-a4 .r-sub{font-size:12px;color:#333;margin-top:4px;}
+  .receipt-a4 table{width:100%;border-collapse:collapse;margin:10px 0;}
+  .receipt-a4 th,.receipt-a4 td{padding:6px 4px;font-size:12.5px;text-align:left;border-bottom:1px solid #ddd;}
+  .receipt-a4 th.num,.receipt-a4 td.num{text-align:right;}
+  .receipt-a4 .r-totals{margin-top:10px;width:100%;}
+  .receipt-a4 .r-totals div{display:flex;justify-content:space-between;padding:3px 0;font-size:13px;}
+  .receipt-a4 .r-total-final{font-size:17px;font-weight:700;border-top:2px solid #000;padding-top:8px;margin-top:6px;}
+  .receipt-a4 .r-footer{margin-top:22px;text-align:center;font-size:11.5px;color:#444;border-top:1px dashed #999;padding-top:10px;}
+  .receipt-80{width:76mm;padding:2mm 2mm;font-size:11.5px;line-height:1.45;}
+  .receipt-80 .r-store{font-size:14px;font-weight:700;text-align:center;}
+  .receipt-80 .r-sub{text-align:center;font-size:10.5px;margin-bottom:6px;}
+  .receipt-80 .r-line{border-top:1px dashed #000;margin:6px 0;}
+  .receipt-80 .r-item{display:flex;justify-content:space-between;gap:6px;margin:2px 0;}
+  .receipt-80 .r-item-name{flex:1;}
+  .receipt-80 .r-totals div{display:flex;justify-content:space-between;font-size:11.5px;padding:1px 0;}
+  .receipt-80 .r-total-final{font-size:15px;font-weight:700;margin-top:4px;}
+  .receipt-80 .r-footer{margin-top:10px;text-align:center;font-size:10.5px;}
+  @media print{
+    body *{visibility:hidden;}
+    #printArea, #printArea *{visibility:visible;}
+    #printArea{display:block;position:absolute;top:0;left:0;width:100%;}
+  }
+  @page{margin:10mm;}
+  body.print-mode-80{}
+  body.print-mode-80 #printArea{width:80mm;}
+
 </style>
+<style id="printPageStyle"></style>
 </head>
 <body>
 <div class="app">
@@ -581,6 +614,24 @@
             </div>
 
             <div class="card card-pad" style="margin-top:20px;">
+              <div class="section-title"><h2>Dados do comprovante</h2></div>
+              <p class="helper-text" style="margin-top:0;">Essas informações aparecem no cabeçalho e rodapé dos comprovantes impressos (A4 e 80mm).</p>
+              <div class="field">
+                <label>Nome do negócio</label>
+                <input type="text" id="printStoreName" class="force-uppercase" placeholder="Ex: LOJA DO JOÃO">
+              </div>
+              <div class="field">
+                <label>Telefone / CNPJ / endereço (opcional)</label>
+                <input type="text" id="printStoreInfo" placeholder="Ex: (85) 99999-9999">
+              </div>
+              <div class="field">
+                <label>Mensagem de rodapé (opcional)</label>
+                <input type="text" id="printFooterMsg" class="force-uppercase" placeholder="Ex: VOLTE SEMPRE!">
+              </div>
+              <button class="btn btn-primary" id="savePrintSettingsBtn">Salvar dados do comprovante</button>
+            </div>
+
+            <div class="card card-pad" style="margin-top:20px;">
               <div class="section-title"><h2>Enviar agora</h2></div>
               <p class="helper-text" style="margin-top:0;">Envios manuais não duplicam dados. A sincronização também busca vendas e retiradas feitas em outros aparelhos e processa pendências offline.</p>
               <div style="display:flex; flex-direction:column; gap:8px;">
@@ -616,6 +667,8 @@
     </div>
   </div>
 </div>
+
+<div id="printArea"></div>
 
 <div id="toast" class="toast"></div>
 
@@ -839,7 +892,18 @@ async function saveImportedSale(sale){
   if(!sale || !sale.id) return false;
   const dk = sale.date || todayKey();
   const arr = await loadDaySales(dk);
-  if(arr.some(s=>String(s.id)===String(sale.id))) return false;
+  const idx = arr.findIndex(s=>String(s.id)===String(sale.id));
+  if(idx>=0){
+    if(sale.canceled && !arr[idx].canceled){
+      arr[idx].canceled = true;
+      arr[idx].canceledAt = sale.canceledAt || nowStamp();
+      arr[idx].cancelReason = sale.cancelReason || '';
+      arr[idx].updatedAt = sale.updatedAt || nowStamp();
+      await saveDaySales(dk, arr);
+      return true;
+    }
+    return false;
+  }
   arr.push(sale);
   await saveDaySales(dk, arr);
   return true;
@@ -1865,7 +1929,35 @@ document.getElementById('payMethods').addEventListener('click', (e)=>{
 });
 document.getElementById('payMethods').addEventListener('keydown', (e)=>{
   const btn = e.target.closest('.pay-btn');
-  if(!btn || e.key!=='Enter') return;
+  if(!btn) return;
+  const buttons = Array.from(document.querySelectorAll('#payMethods .pay-btn'));
+  const cols = 2;
+
+  if(['ArrowRight','ArrowLeft','ArrowUp','ArrowDown'].includes(e.key)){
+    e.preventDefault();
+    const idx = buttons.indexOf(btn);
+    const rows = Math.ceil(buttons.length / cols);
+    let row = Math.floor(idx / cols);
+    let col = idx % cols;
+    if(e.key==='ArrowRight') col = (col + 1) % cols;
+    else if(e.key==='ArrowLeft') col = (col - 1 + cols) % cols;
+    else if(e.key==='ArrowDown') row = (row + 1) % rows;
+    else if(e.key==='ArrowUp') row = (row - 1 + rows) % rows;
+    let newIdx = row * cols + col;
+    if(newIdx >= buttons.length) newIdx = idx;
+    buttons[newIdx].focus();
+    selectPaymentButton(buttons[newIdx], false);
+    return;
+  }
+
+  if(['1','2','3','4'].includes(e.key)){
+    e.preventDefault();
+    const target = buttons[Number(e.key) - 1];
+    if(target) selectPaymentButton(target, true);
+    return;
+  }
+
+  if(e.key!=='Enter') return;
   e.preventDefault();
   selectPaymentButton(btn, false);
   if(cart.length>0){ document.getElementById('finalizeSaleBtn').click(); }
@@ -2458,18 +2550,20 @@ function getWithdrawalPayment(w){
 }
 
 function calculateFinancialSummary(sales, withdrawals){
+  const activeSales = (Array.isArray(sales) ? sales : []).filter(s=>!s.canceled);
+  const activeWithdrawals = (Array.isArray(withdrawals) ? withdrawals : []).filter(w=>!w.canceled);
   const byIn = {};
   const byOut = {};
   const byBalance = {};
   PAYMENT_METHODS.forEach(m=>{ byIn[m]=0; byOut[m]=0; byBalance[m]=0; });
-  (Array.isArray(sales) ? sales : []).forEach(s=>{
+  activeSales.forEach(s=>{
     getSalePayments(s).forEach(part=>{
       const method = part.method || 'Não informado';
       if(!(method in byIn)){ byIn[method]=0; byOut[method]=0; byBalance[method]=0; }
       byIn[method] += Number(part.amount)||0;
     });
   });
-  (Array.isArray(withdrawals) ? withdrawals : []).forEach(w=>{
+  activeWithdrawals.forEach(w=>{
     const method = getWithdrawalPayment(w);
     if(!(method in byOut)){ byIn[method]=0; byOut[method]=0; byBalance[method]=0; }
     byOut[method] += Number(w.amount)||0;
@@ -2509,23 +2603,99 @@ function openSaleDetailModal(saleId){
   const customer = sale.saleType === 'cliente' ? (sale.customerName || 'CLIENTE') : 'BALCÃO';
   const subtotal = Number(sale.subtotal)||items.reduce((a,it)=>a+(Number(it.price)||0)*(Number(it.qty)||0),0);
   const paymentRows = getSalePayments(sale).map(p=>`<div class="sale-detail-row"><span>${escapeHtml(p.method)}</span><b>${fmt(p.amount)}</b></div>`).join('');
+  const canceledNotice = sale.canceled
+    ? `<div class="card-pad" style="background:var(--danger-soft); border-radius:10px; margin:12px 0; padding:10px 12px;">
+        <b style="color:var(--danger);">Venda cancelada</b>
+        <div class="helper-text" style="margin:2px 0 0;">Em ${escapeHtml(sale.canceledAt || '')}${sale.cancelReason ? ' · Motivo: ' + escapeHtml(sale.cancelReason) : ''}</div>
+      </div>`
+    : '';
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal" style="max-width:560px;">
       <h3>Detalhe da venda #${escapeHtml(saleShortId(sale))}</h3>
       <div class="helper-text" style="margin-top:-8px;">${formatDateBR(sale.date)} às ${escapeHtml(sale.time || '--')} · ${escapeHtml(customer)} · ${escapeHtml(getSalePaymentLabel(sale))}</div>
+      ${canceledNotice}
       <div class="sale-detail-list">${rows}</div>
       <div class="subtotal-row"><span>Subtotal</span><span>${fmt(subtotal)}</span></div>
       <div class="subtotal-row"><span>Desconto</span><span>${fmt(Number(sale.discountValue)||0)}</span></div>
       <div class="cart-total-row"><span class="tot-label">Total da venda</span><span class="tot-value">${fmt(safeSaleTotal(sale))}</span></div>
       <h3 style="font-size:14px; margin-top:16px; margin-bottom:8px;">Forma(s) de pagamento</h3>
       <div class="sale-detail-list">${paymentRows}</div>
-      <button class="btn btn-primary btn-block" id="saleDetailClose">Fechar</button>
+      <div style="display:flex; gap:8px; margin-top:16px;">
+        <button class="btn btn-ghost" style="flex:1;" id="saleDetailPrintA4">🖨️ A4</button>
+        <button class="btn btn-ghost" style="flex:1;" id="saleDetailPrint80">🧾 80mm</button>
+      </div>
+      ${!sale.canceled ? `<button class="btn btn-danger btn-block" id="saleDetailCancel" style="margin-top:8px;">↩️ Cancelar / devolver esta venda</button>` : ''}
+      <button class="btn btn-primary btn-block" id="saleDetailClose" style="margin-top:8px;">Fechar</button>
     </div>`;
   document.body.appendChild(overlay);
   document.getElementById('saleDetailClose').onclick = ()=>overlay.remove();
+  document.getElementById('saleDetailPrintA4').onclick = ()=>printSale(sale, 'a4');
+  document.getElementById('saleDetailPrint80').onclick = ()=>printSale(sale, '80mm');
+  const cancelBtn = document.getElementById('saleDetailCancel');
+  if(cancelBtn) cancelBtn.onclick = ()=>openCancelSaleModal(sale, overlay);
 }
+
+/* ---------- Cancelamento / devolução de venda ---------- */
+function openCancelSaleModal(sale, parentOverlay){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:420px;">
+      <h3>Cancelar venda #${escapeHtml(saleShortId(sale))}</h3>
+      <p class="helper-text" style="margin-top:-8px;">O estoque dos produtos será devolvido e o valor sairá do esperado do caixa. Essa ação não pode ser desfeita.</p>
+      <div class="field">
+        <label>Motivo (opcional)</label>
+        <input type="text" id="cancelReasonInput" placeholder="Ex: cliente desistiu, produto com defeito...">
+      </div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button type="button" class="btn btn-ghost" style="flex:1;" id="cancelSaleAbort">Voltar</button>
+        <button type="button" class="btn btn-danger" style="flex:1;" id="cancelSaleConfirm">Confirmar cancelamento</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+  overlay.querySelector('#cancelSaleAbort').addEventListener('click', ()=>overlay.remove());
+  overlay.querySelector('#cancelSaleConfirm').addEventListener('click', async ()=>{
+    const reason = document.getElementById('cancelReasonInput').value.trim();
+    await cancelSale(sale, reason);
+    overlay.remove();
+    if(parentOverlay) parentOverlay.remove();
+  });
+}
+
+async function cancelSale(sale, reason){
+  if(sale.canceled){ showToast('Esta venda já está cancelada'); return; }
+  const dk = sale.date || todayKey();
+  const arr = await loadDaySales(dk);
+  const idx = arr.findIndex(s=>String(s.id)===String(sale.id));
+  sale.canceled = true;
+  sale.canceledAt = nowStamp();
+  sale.cancelReason = reason || '';
+  sale.updatedAt = nowStamp();
+  if(idx>=0){ arr[idx] = sale; } else { arr.push(sale); }
+  await saveDaySales(dk, arr);
+
+  (Array.isArray(sale.items) ? sale.items : []).forEach(it=>{
+    const p = products.find(pp=>pp.id===it.productId);
+    if(p && !p.isService){
+      p.stock = (Number(p.stock)||0) + (Number(it.qty)||0);
+      p.updatedAt = nowStamp();
+    }
+  });
+  await saveProducts();
+  renderProductGrid();
+
+  await refreshRegisterDisplay();
+  await refreshCaixaSummary();
+  await refreshCaixaSessionView();
+  refreshReportsLive();
+  syncSaleIfAuto(sale);
+  syncProductsIfAuto();
+  showToast('Venda #' + saleShortId(sale) + ' cancelada' + (reason ? ' — ' + reason : ''));
+}
+
 
 function refreshReportsLive(){
   if(!ensureReportDefaultDates()) return;
@@ -2571,7 +2741,7 @@ async function runReport(options={}){
     const productMap = {};
     products.forEach(p=>productMap[p.id]=p);
     const soldQty = {};
-    allSales.forEach(s=>{
+    allSales.filter(s=>!s.canceled).forEach(s=>{
       const items = Array.isArray(s.items) ? s.items : [];
       items.forEach(it=>{
         const p = productMap[it.productId];
@@ -2588,7 +2758,9 @@ async function runReport(options={}){
     const lucro = totalVendas - custoTotal - totalRetiradas;
 
     document.getElementById('repTotalVendas').textContent = fmt(totalVendas);
-    document.getElementById('repQtdVendas').textContent = allSales.length + (allSales.length===1?' venda':' vendas');
+    const activeSalesCount = allSales.filter(s=>!s.canceled).length;
+    const canceledCount = allSales.length - activeSalesCount;
+    document.getElementById('repQtdVendas').textContent = activeSalesCount + (activeSalesCount===1?' venda':' vendas') + (canceledCount ? ` (${canceledCount} cancelada${canceledCount===1?'':'s'})` : '');
     document.getElementById('repTotalRetiradas').textContent = fmt(totalRetiradas);
     document.getElementById('repCaixaFisico').textContent = fmt(caixaFisico);
     document.getElementById('repLucro').textContent = fmt(lucro);
@@ -2599,8 +2771,10 @@ async function runReport(options={}){
     salesBody.innerHTML = allSales.length ? allSales.map(s=>{
       const customer = s.saleType === 'cliente' ? (s.customerName || 'CLIENTE') : 'BALCÃO';
       const discount = Number(s.discountValue)||0;
-      return `<tr>
-        <td><b>#${escapeHtml(saleShortId(s))}</b></td>
+      const canceledStyle = s.canceled ? ' style="opacity:.55;"' : '';
+      const canceledBadge = s.canceled ? ' <span class="badge badge-low">Cancelada</span>' : '';
+      return `<tr${canceledStyle}>
+        <td><b>#${escapeHtml(saleShortId(s))}</b>${canceledBadge}</td>
         <td>${formatDateBR(s.date)}</td>
         <td>${escapeHtml(String(s.time||'--'))}</td>
         <td>${escapeHtml(String(customer))}</td>
@@ -2748,7 +2922,7 @@ function existingIds_(sheet, headerName, fallbackCol) {
 }
 
 function vendasHeaders_() {
-  return ['Data','Hora','ID Venda','Tipo','Cliente','Produto','Código','Quantidade','Preço Unit.','Subtotal Item','Subtotal Venda','Desconto %','Desconto R$','Total Venda','Forma Pagamento','Partes Pagamento JSON','Itens JSON','Atualizado Em'];
+  return ['Data','Hora','ID Venda','Tipo','Cliente','Produto','Código','Quantidade','Preço Unit.','Subtotal Item','Subtotal Venda','Desconto %','Desconto R$','Total Venda','Forma Pagamento','Partes Pagamento JSON','Itens JSON','Atualizado Em','Cancelada','Motivo Cancelamento','Cancelada Em'];
 }
 function retiradasHeaders_() {
   return ['Data','Hora','ID','Descrição','Forma','Valor','Atualizado Em'];
@@ -2763,8 +2937,26 @@ function caixaHeaders_() {
 function appendVenda_(ss, sale) {
   if (!sale || !sale.id) return;
   var sheet = getOrCreateSheet_(ss, 'Vendas', vendasHeaders_());
-  var ids = existingIds_(sheet, 'ID Venda', 3);
-  if (ids[sale.id]) return;
+  var map = headerMap_(sheet);
+  var idCol = map['ID Venda'] + 1;
+  var last = sheet.getLastRow();
+  var existingRows = [];
+  if (last >= 2) {
+    var ids = sheet.getRange(2, idCol, last - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) === String(sale.id)) existingRows.push(i + 2);
+    }
+  }
+  if (existingRows.length) {
+    // Venda já sincronizada: apenas atualiza status de cancelamento e atualizado em
+    existingRows.forEach(function (rowIndex) {
+      if (map['Cancelada'] != null) sheet.getRange(rowIndex, map['Cancelada'] + 1).setValue(sale.canceled ? 'SIM' : 'NÃO');
+      if (map['Motivo Cancelamento'] != null) sheet.getRange(rowIndex, map['Motivo Cancelamento'] + 1).setValue(sale.cancelReason || '');
+      if (map['Cancelada Em'] != null) sheet.getRange(rowIndex, map['Cancelada Em'] + 1).setValue(sale.canceledAt || '');
+      if (map['Atualizado Em'] != null) sheet.getRange(rowIndex, map['Atualizado Em'] + 1).setValue(sale.updatedAt || '');
+    });
+    return;
+  }
   var itemsJson = JSON.stringify(sale.items || []);
   var partsJson = JSON.stringify(sale.paymentParts || []);
   (sale.items || []).forEach(function (item) {
@@ -2772,7 +2964,8 @@ function appendVenda_(ss, sale) {
       sale.date || '', sale.time || '', sale.id, sale.saleType || '', sale.customerName || '',
       item.name || '', item.code || '', item.qty || 0, item.price || 0, (Number(item.price)||0) * (Number(item.qty)||0),
       sale.subtotal || '', sale.discountPercent || 0, sale.discountValue || 0, sale.total || 0,
-      sale.payment || '', partsJson, itemsJson, sale.updatedAt || ''
+      sale.payment || '', partsJson, itemsJson, sale.updatedAt || '',
+      sale.canceled ? 'SIM' : 'NÃO', sale.cancelReason || '', sale.canceledAt || ''
     ]);
   });
 }
@@ -2918,7 +3111,10 @@ function readVendas_(ss) {
         total: Number(r[map['Total Venda']]) || 0,
         payment: String(r[map['Forma Pagamento']] || ''),
         paymentParts: safeJson_(partsJson, []),
-        updatedAt: String(r[map['Atualizado Em']] || '')
+        updatedAt: String(r[map['Atualizado Em']] || ''),
+        canceled: map['Cancelada'] != null ? String(r[map['Cancelada']] || '') === 'SIM' : false,
+        cancelReason: map['Motivo Cancelamento'] != null ? String(r[map['Motivo Cancelamento']] || '') : '',
+        canceledAt: map['Cancelada Em'] != null ? String(r[map['Cancelada Em']] || '') : ''
       };
     }
     if (!byId[id].items.length) {
@@ -3007,6 +3203,138 @@ async function initBackupView(){
   document.getElementById('backupStatus').textContent = cfg.url
     ? 'Configuração salva. Sincronização automática: ' + (cfg.auto ? 'ativada' : 'desativada') + '.'
     : 'Nenhuma URL configurada ainda.';
+  const printCfg = await getPrintSettings();
+  document.getElementById('printStoreName').value = printCfg.storeName || '';
+  document.getElementById('printStoreInfo').value = printCfg.storeInfo || '';
+  document.getElementById('printFooterMsg').value = printCfg.footerMsg || '';
+}
+
+/* ---------- Configurações de impressão ---------- */
+const PRINT_SETTINGS_KEY = 'printSettings';
+async function getPrintSettings(){
+  const cfg = await storageGet(PRINT_SETTINGS_KEY);
+  return cfg && typeof cfg === 'object' ? cfg : {storeName:'', storeInfo:'', footerMsg:''};
+}
+async function savePrintSettings(cfg){
+  await storageSet(PRINT_SETTINGS_KEY, cfg);
+}
+document.getElementById('savePrintSettingsBtn').addEventListener('click', async ()=>{
+  forceUppercaseValue(document.getElementById('printStoreName'));
+  forceUppercaseValue(document.getElementById('printFooterMsg'));
+  const cfg = {
+    storeName: document.getElementById('printStoreName').value.trim(),
+    storeInfo: document.getElementById('printStoreInfo').value.trim(),
+    footerMsg: document.getElementById('printFooterMsg').value.trim()
+  };
+  await savePrintSettings(cfg);
+  showToast('Dados do comprovante salvos');
+});
+
+/* ---------- Impressão de comprovantes (A4 / 80mm) ---------- */
+function buildReceiptHtml(sale, format, printCfg){
+  const items = Array.isArray(sale.items) ? sale.items : [];
+  const customer = sale.saleType === 'cliente' ? (sale.customerName || 'CLIENTE') : 'BALCÃO';
+  const subtotal = Number(sale.subtotal) || items.reduce((a,it)=>a+(Number(it.price)||0)*(Number(it.qty)||0),0);
+  const total = safeSaleTotal(sale);
+  const discount = Number(sale.discountValue) || 0;
+  const paymentLabel = getSalePaymentLabel(sale);
+  const storeName = printCfg.storeName || 'COMPROVANTE DE VENDA';
+  const dateLabel = displayDateBR(sale.date) + ' às ' + (sale.time || '--');
+  const shortId = saleShortId(sale);
+
+  if(format === '80mm'){
+    const itemsHtml = items.map(it=>{
+      const qty = Number(it.qty)||0;
+      const price = Number(it.price)||0;
+      const lineTotal = qty*price;
+      return `<div class="r-item"><span class="r-item-name">${qty}x ${escapeHtml(it.name||'Produto')}</span><span>${fmt(lineTotal)}</span></div>`;
+    }).join('') || '<div class="r-item"><span>Sem itens</span></div>';
+    return `<div class="receipt receipt-80">
+      <div class="r-store">${escapeHtml(storeName)}</div>
+      ${printCfg.storeInfo ? `<div class="r-sub">${escapeHtml(printCfg.storeInfo)}</div>` : ''}
+      <div class="r-sub">${escapeHtml(dateLabel)} · #${escapeHtml(shortId)}</div>
+      <div class="r-sub">Cliente: ${escapeHtml(customer)}</div>
+      <div class="r-line"></div>
+      ${itemsHtml}
+      <div class="r-line"></div>
+      <div class="r-totals">
+        <div><span>Subtotal</span><span>${fmt(subtotal)}</span></div>
+        ${discount > 0 ? `<div><span>Desconto</span><span>-${fmt(discount)}</span></div>` : ''}
+        <div class="r-total-final"><span>TOTAL</span><span>${fmt(total)}</span></div>
+        <div><span>Pagamento</span><span>${escapeHtml(paymentLabel)}</span></div>
+      </div>
+      <div class="r-line"></div>
+      <div class="r-footer">${printCfg.footerMsg ? escapeHtml(printCfg.footerMsg) : 'Obrigado pela preferência!'}</div>
+    </div>`;
+  }
+
+  const rowsHtml = items.map(it=>{
+    const qty = Number(it.qty)||0;
+    const price = Number(it.price)||0;
+    const lineTotal = qty*price;
+    return `<tr><td>${escapeHtml(it.name||'Produto')}</td><td class="num">${qty}</td><td class="num">${fmt(price)}</td><td class="num">${fmt(lineTotal)}</td></tr>`;
+  }).join('') || '<tr><td colspan="4">Sem itens registrados</td></tr>';
+  return `<div class="receipt receipt-a4">
+    <div class="r-header">
+      <div class="r-store">${escapeHtml(storeName)}</div>
+      ${printCfg.storeInfo ? `<div class="r-sub">${escapeHtml(printCfg.storeInfo)}</div>` : ''}
+      <div class="r-sub">Comprovante de venda #${escapeHtml(shortId)} · ${escapeHtml(dateLabel)}</div>
+      <div class="r-sub">Cliente: ${escapeHtml(customer)}</div>
+    </div>
+    <table>
+      <thead><tr><th>Produto</th><th class="num">Qtd</th><th class="num">Unitário</th><th class="num">Total</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    <div class="r-totals">
+      <div><span>Subtotal</span><span>${fmt(subtotal)}</span></div>
+      ${discount > 0 ? `<div><span>Desconto</span><span>-${fmt(discount)}</span></div>` : ''}
+      <div><span>Forma de pagamento</span><span>${escapeHtml(paymentLabel)}</span></div>
+      <div class="r-total-final"><span>TOTAL</span><span>${fmt(total)}</span></div>
+    </div>
+    <div class="r-footer">${printCfg.footerMsg ? escapeHtml(printCfg.footerMsg) : 'Obrigado pela preferência!'}</div>
+  </div>`;
+}
+
+async function printSale(sale, format){
+  const printCfg = await getPrintSettings();
+  const printArea = document.getElementById('printArea');
+  printArea.innerHTML = buildReceiptHtml(sale, format, printCfg);
+  const pageStyle = document.getElementById('printPageStyle');
+  pageStyle.textContent = format === '80mm'
+    ? '@page{size:80mm auto;margin:2mm;}'
+    : '@page{size:A4;margin:12mm;}';
+  document.body.classList.toggle('print-mode-80', format === '80mm');
+  const cleanup = () => {
+    document.body.classList.remove('print-mode-80');
+    printArea.innerHTML = '';
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(() => { window.print(); }, 60);
+}
+
+function openPrintChoiceModal(sale){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:400px;">
+      <h3>Imprimir comprovante?</h3>
+      <p class="helper-text" style="margin-top:-8px;">Venda #${escapeHtml(saleShortId(sale))} — ${fmt(safeSaleTotal(sale))}</p>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button type="button" class="btn btn-primary btn-block" id="printSkipBtn" autofocus>Não imprimir</button>
+        <button type="button" class="btn btn-ghost btn-block" id="printA4Btn">🖨️ Imprimir em A4</button>
+        <button type="button" class="btn btn-ghost btn-block" id="print80Btn">🧾 Imprimir na térmica 80mm</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
+  overlay.querySelector('#printSkipBtn').addEventListener('click', close);
+  overlay.querySelector('#printA4Btn').addEventListener('click', () => { printSale(sale, 'a4'); close(); });
+  overlay.querySelector('#print80Btn').addEventListener('click', () => { printSale(sale, '80mm'); close(); });
+  const skipBtn = overlay.querySelector('#printSkipBtn');
+  skipBtn.focus();
+  setTimeout(() => skipBtn.focus(), 0);
 }
 
 document.getElementById('saveBackupUrlBtn').addEventListener('click', async ()=>{
