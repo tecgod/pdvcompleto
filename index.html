@@ -3352,24 +3352,42 @@ function renderReportSalesTable(){
   if(!salesBody) return;
   const searchEl = document.getElementById('repSalesItemSearch');
   const rawTerm = searchEl ? searchEl.value.trim() : '';
+  const catEl = document.getElementById('repSalesCategoryFilter');
+  const payEl = document.getElementById('repSalesPaymentFilter');
+  const catFilter = catEl ? catEl.value : '';
+  const payFilter = payEl ? payEl.value : '';
+  const hasFilter = !!(rawTerm || catFilter || payFilter);
   const filtered = filterReportSalesByItem(currentReportSales);
+  const activeFiltered = filtered.filter(s=>!s.canceled);
+  const canceledFiltered = filtered.length - activeFiltered.length;
+  const filteredTotal = activeFiltered.reduce((a,s)=> a + (payFilter ? getPaymentAmount(s, payFilter) : safeSaleTotal(s)), 0);
 
   const note = document.getElementById('repSalesItemSearchNote');
   if(note){
-    if(rawTerm){
+    if(hasFilter){
       note.style.display = 'block';
-      note.textContent = `${filtered.length} venda${filtered.length===1?'':'s'} com "${rawTerm.toLocaleUpperCase('pt-BR')}" no per\u00edodo selecionado.`;
+      const parts = [];
+      if(rawTerm) parts.push(`termo "${rawTerm.toLocaleUpperCase('pt-BR')}"`);
+      if(catFilter) parts.push(`categoria "${catFilter}"`);
+      if(payFilter) parts.push(`pagamento "${payFilter}"`);
+      note.textContent = `${activeFiltered.length} venda${activeFiltered.length===1?'':'s'}${canceledFiltered?` (${canceledFiltered} cancelada${canceledFiltered===1?'':'s'})`:''} com ${parts.join(' + ')} — Total: ${fmt(filteredTotal)}.`;
     } else {
       note.style.display = 'none';
       note.textContent = '';
     }
   }
 
-  salesBody.innerHTML = filtered.length ? filtered.map(s=>{
+  const rowsHtml = filtered.length ? filtered.map(s=>{
     const customer = getSaleCustomerLabel(s);
     const discount = Number(s.discountValue)||0;
     const canceledStyle = s.canceled ? ' style="opacity:.55;"' : '';
     const canceledBadge = s.canceled ? ' <span class="badge badge-low">Cancelada</span>' : '';
+    const saleParts = getSalePayments(s);
+    const isSplitSale = saleParts.length > 1;
+    const rowTotal = (payFilter && isSplitSale) ? getPaymentAmount(s, payFilter) : safeSaleTotal(s);
+    const totalCell = (payFilter && isSplitSale)
+      ? `<b>${fmt(rowTotal)}</b><br><span class="report-muted" style="font-size:11px;">venda total: ${fmt(safeSaleTotal(s))}</span>`
+      : `<b>${fmt(rowTotal)}</b>`;
     return `<tr${canceledStyle}>
       <td><b>#${escapeHtml(saleShortId(s))}</b>${canceledBadge}</td>
       <td>${formatDateBR(s.date)}</td>
@@ -3378,10 +3396,18 @@ function renderReportSalesTable(){
       <td class="report-items">${safeItemsHtml(s.items)}</td>
       <td>${escapeHtml(getSalePaymentLabel(s))}</td>
       <td class="num">${discount ? fmt(discount) : '-'}</td>
-      <td class="num"><b>${fmt(safeSaleTotal(s))}</b></td>
+      <td class="num">${totalCell}</td>
       <td><button type="button" class="report-click-btn" data-sale-detail="${escapeHtml(String(s.id||''))}">Detalhar</button></td>
     </tr>`;
-  }).join('') : `<tr><td colspan="9" style="color:var(--ink-soft);">${rawTerm ? 'Nenhuma venda do per\u00edodo corresponde \u00e0 busca.' : 'Nenhuma venda no per\u00edodo selecionado.'}</td></tr>`;
+  }).join('') : `<tr><td colspan="9" style="color:var(--ink-soft);">${hasFilter ? 'Nenhuma venda do per\u00edodo corresponde ao filtro selecionado.' : 'Nenhuma venda no per\u00edodo selecionado.'}</td></tr>`;
+
+  const footerHtml = (hasFilter && filtered.length) ? `<tr class="caixa-close-total-row">
+      <td colspan="7"><b>${payFilter ? `Total em ${escapeHtml(payFilter)}` : 'Total filtrado'}</b></td>
+      <td class="num"><b>${fmt(filteredTotal)}</b></td>
+      <td></td>
+    </tr>` : '';
+
+  salesBody.innerHTML = rowsHtml + footerHtml;
   salesBody.querySelectorAll('[data-sale-detail]').forEach(btn=>{
     btn.addEventListener('click', ()=>openSaleDetailModal(btn.dataset.saleDetail));
   });
