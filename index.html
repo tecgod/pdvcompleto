@@ -438,7 +438,10 @@
 
         <div class="section-title">
           <h2>Catálogo de produtos</h2>
-          <button class="btn btn-primary" id="newProductBtn">+ Novo produto</button>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-ghost" id="printProductsBtn">🖨️ Imprimir tabela</button>
+            <button class="btn btn-primary" id="newProductBtn">+ Novo produto</button>
+          </div>
         </div>
         <div class="card">
           <table id="productsTable">
@@ -509,7 +512,6 @@
               <button type="button" class="pay-btn selected" data-withdrawal-pay="Dinheiro">Dinheiro</button>
               <button type="button" class="pay-btn" data-withdrawal-pay="Pix">Pix</button>
               <button type="button" class="pay-btn" data-withdrawal-pay="Débito">Débito</button>
-              <button type="button" class="pay-btn" data-withdrawal-pay="Crédito">Crédito</button>
             </div>
             <button class="btn btn-warn btn-block" id="addWithdrawalBtn">Registrar retirada</button>
           </div>
@@ -2608,7 +2610,7 @@ function openWithdrawalEditModal(withdrawal, dateKey){
   overlay.innerHTML = `
     <div class="modal">
       <h3>Editar retirada</h3>
-      <p class="helper-text" style="margin-top:-8px;">Use Enter para avançar campo por campo. Na forma de retirada, use as setas ou 1-4 para escolher e Enter para confirmar.</p>
+      <p class="helper-text" style="margin-top:-8px;">Use Enter para avançar campo por campo. Na forma de retirada, use as setas ou 1-3 para escolher e Enter para confirmar.</p>
       <div class="field">
         <label>Valor (R$)</label>
         <input type="number" id="ewAmount" step="0.01" min="0" value="${Number(withdrawal.amount)||0}">
@@ -2622,7 +2624,6 @@ function openWithdrawalEditModal(withdrawal, dateKey){
         <button type="button" class="pay-btn" data-withdrawal-pay="Dinheiro">Dinheiro</button>
         <button type="button" class="pay-btn" data-withdrawal-pay="Pix">Pix</button>
         <button type="button" class="pay-btn" data-withdrawal-pay="Débito">Débito</button>
-        <button type="button" class="pay-btn" data-withdrawal-pay="Crédito">Crédito</button>
       </div>
       <div style="display:flex; gap:8px; margin-top:8px;">
         <button class="btn btn-ghost btn-block" id="ewCancel">Fechar</button>
@@ -3629,6 +3630,97 @@ function openPrintChoiceModal(sale){
   skipBtn.focus();
   setTimeout(() => skipBtn.focus(), 0);
 }
+
+function buildProductsTablePrintHtml(fields, printCfg){
+  const storeName = printCfg.storeName || 'TABELA DE PRODUTOS';
+  const dateLabel = displayDateBR(todayKey()) + ' às ' + nowTime();
+  const cols = [{key:'name', label:'Produto'}];
+  if(fields.code) cols.push({key:'code', label:'Código'});
+  if(fields.category) cols.push({key:'category', label:'Categoria'});
+  if(fields.price) cols.push({key:'price', label:'Preço', num:true});
+  if(fields.stock) cols.push({key:'stock', label:'Quantidade', num:true});
+  const theadHtml = cols.map(c=>`<th${c.num?' class="num"':''}>${escapeHtml(c.label)}</th>`).join('');
+  const rowsHtml = products.map(p=>{
+    return '<tr>' + cols.map(c=>{
+      let val;
+      if(c.key==='name') val = p.name||'—';
+      else if(c.key==='code') val = p.code||'—';
+      else if(c.key==='category') val = p.category||'—';
+      else if(c.key==='price') val = fmt(p.price);
+      else if(c.key==='stock') val = p.isService ? '∞' : String(p.stock);
+      return `<td${c.num?' class="num"':''}>${escapeHtml(val)}</td>`;
+    }).join('') + '</tr>';
+  }).join('') || `<tr><td colspan="${cols.length}">Nenhum produto cadastrado</td></tr>`;
+  return `<div class="receipt receipt-a4">
+    <div class="r-header">
+      <div class="r-store">${escapeHtml(storeName)}</div>
+      ${printCfg.storeInfo ? `<div class="r-sub">${escapeHtml(printCfg.storeInfo)}</div>` : ''}
+      <div class="r-sub">Tabela de produtos · ${escapeHtml(dateLabel)}</div>
+    </div>
+    <table>
+      <thead><tr>${theadHtml}</tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    <div class="r-footer">${printCfg.footerMsg ? escapeHtml(printCfg.footerMsg) : 'Obrigado pela preferência!'}</div>
+  </div>`;
+}
+
+async function printProductsTable(fields){
+  const printCfg = await getPrintSettings();
+  const printArea = document.getElementById('printArea');
+  printArea.innerHTML = buildProductsTablePrintHtml(fields, printCfg);
+  const pageStyle = document.getElementById('printPageStyle');
+  pageStyle.textContent = '@page{size:A4;margin:12mm;}';
+  const cleanup = () => {
+    printArea.innerHTML = '';
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(() => { window.print(); }, 60);
+}
+
+function openPrintProductsModal(){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:400px;">
+      <h3>Imprimir tabela de produtos</h3>
+      <p class="helper-text" style="margin-top:-8px;">Escolha quais informações devem aparecer na impressão (formato A4). O nome do produto sempre aparece.</p>
+      <div style="display:flex; flex-direction:column; gap:10px; margin:12px 0;">
+        <label style="display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px;">
+          <input type="checkbox" id="ppfCode"> Código
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px;">
+          <input type="checkbox" id="ppfCategory"> Categoria
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px;">
+          <input type="checkbox" id="ppfPrice"> Preço
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px;">
+          <input type="checkbox" id="ppfStock" checked> Quantidade (estoque)
+        </label>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button type="button" class="btn btn-ghost btn-block" id="ppfCancel">Cancelar</button>
+        <button type="button" class="btn btn-primary btn-block" id="ppfPrint">🖨️ Imprimir</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
+  overlay.querySelector('#ppfCancel').addEventListener('click', close);
+  overlay.querySelector('#ppfPrint').addEventListener('click', () => {
+    const fields = {
+      code: overlay.querySelector('#ppfCode').checked,
+      category: overlay.querySelector('#ppfCategory').checked,
+      price: overlay.querySelector('#ppfPrice').checked,
+      stock: overlay.querySelector('#ppfStock').checked
+    };
+    printProductsTable(fields);
+    close();
+  });
+}
+document.getElementById('printProductsBtn').addEventListener('click', openPrintProductsModal);
 
 document.getElementById('saveBackupUrlBtn').addEventListener('click', async ()=>{
   const url = document.getElementById('backupUrl').value.trim();
