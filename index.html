@@ -3731,11 +3731,26 @@ function readCaixa_(ss) {
 
 function syncProdutos_(ss, products) {
   var sheet = getOrCreateSheet_(ss, 'Produtos', produtosHeaders_());
-  if (sheet.getLastRow() > 1) sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).clearContent();
+  ensureHeaders_(sheet, produtosHeaders_());
+  var map = headerMap_(sheet);
+  var lastCol = sheet.getLastColumn();
+  if (sheet.getLastRow() > 1) sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).clearContent();
   var rows = (products || []).map(function (p) {
-    return [p.id, p.name, p.code || '', p.category || '', p.price || 0, p.cost || 0, p.stock || 0, p.minStock || 0, p.isService ? 'Serviço' : 'Produto', p.updatedAt || ''];
+    var row = new Array(lastCol).fill('');
+    function setCol(name, value) { if (map[name] != null) row[map[name]] = value; }
+    setCol('ID', p.id);
+    setCol('Nome', p.name);
+    setCol('Código', p.code || '');
+    setCol('Categoria', p.category || '');
+    setCol('Preço', p.price || 0);
+    setCol('Custo', p.cost || 0);
+    setCol('Estoque', p.stock || 0);
+    setCol('Estoque Mínimo', p.minStock || 0);
+    setCol('Tipo', p.isService ? 'Serviço' : 'Produto');
+    setCol('Atualizado Em', p.updatedAt || '');
+    return row;
   });
-  if (rows.length) sheet.getRange(2, 1, rows.length, produtosHeaders_().length).setValues(rows);
+  if (rows.length) sheet.getRange(2, 1, rows.length, lastCol).setValues(rows);
 }
 
 function safeJson_(txt, fallback) {
