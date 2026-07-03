@@ -406,7 +406,7 @@
             <div id="cartEmpty" class="empty-state" style="display:none; padding:30px 10px;">
               <div class="ee-icon">🟢</div>
               <strong style="display:block; color:var(--ink); font-size:15px; margin-bottom:4px;">Caixa livre</strong>
-              Peaquise e escolha um produto para iniciar uma nova venda
+              Pesquise e escolha um produto para iniciar uma nova venda
             </div>
             <div class="subtotal-row">
               <span>Subtotal</span>
@@ -601,7 +601,7 @@
         <div class="card card-pad" style="margin-bottom:20px;">
           <div class="section-title">
             <h2>Relat&oacute;rio de vendas do per&iacute;odo</h2>
-            <input type="text" id="repSalesItemSearch" placeholder="Buscar venda por produto... Ex: pincel" style="max-width:260px;">
+            <input type="text" id="repSalesItemSearch" placeholder="Buscar por produto, cliente ou valor... Ex: pincel, João, 150,00" style="max-width:260px;">
           </div>
           <div class="report-summary-note" id="repSalesItemSearchNote" style="display:none;"></div>
           <div class="report-table-wrap">
@@ -3161,16 +3161,29 @@ document.getElementById('addWithdrawalBtn').addEventListener('click', async ()=>
 /* ---------- RELATORIOS ---------- */
 let reportRunSeq = 0;
 let currentReportSales = [];
-function saleItemsMatchTerm(sale, normTerm){
+function getSaleCustomerLabel(sale){
+  return sale.saleType === 'cliente' ? (sale.customerName || 'CLIENTE') : 'BALCÃO';
+}
+function saleValueMatchesTerm(sale, rawTerm){
+  const termDigits = rawTerm.replace(/\./g, ',').replace(/[^\d,]/g, '');
+  if(!termDigits) return false;
+  const valueStr = safeSaleTotal(sale).toFixed(2).replace('.', ',');
+  return valueStr.includes(termDigits);
+}
+function saleMatchesSearchTerm(sale, rawTerm, normTerm){
   const items = Array.isArray(sale.items) ? sale.items : [];
-  return items.some(it=> normalizeProductName(it.name).includes(normTerm) || normalizeProductName(it.code||'').includes(normTerm));
+  const matchesItem = items.some(it=> normalizeProductName(it.name).includes(normTerm) || normalizeProductName(it.code||'').includes(normTerm));
+  if(matchesItem) return true;
+  const matchesCustomer = normalizeProductName(getSaleCustomerLabel(sale)).includes(normTerm);
+  if(matchesCustomer) return true;
+  return saleValueMatchesTerm(sale, rawTerm);
 }
 function filterReportSalesByItem(sales){
   const el = document.getElementById('repSalesItemSearch');
   const raw = el ? el.value.trim() : '';
   if(!raw) return sales;
   const normTerm = normalizeProductName(raw);
-  return sales.filter(s=>saleItemsMatchTerm(s, normTerm));
+  return sales.filter(s=>saleMatchesSearchTerm(s, raw, normTerm));
 }
 function renderReportSalesTable(){
   const salesBody = document.getElementById('repSalesBody');
@@ -3191,7 +3204,7 @@ function renderReportSalesTable(){
   }
 
   salesBody.innerHTML = filtered.length ? filtered.map(s=>{
-    const customer = s.saleType === 'cliente' ? (s.customerName || 'CLIENTE') : 'BALCÃO';
+    const customer = getSaleCustomerLabel(s);
     const discount = Number(s.discountValue)||0;
     const canceledStyle = s.canceled ? ' style="opacity:.55;"' : '';
     const canceledBadge = s.canceled ? ' <span class="badge badge-low">Cancelada</span>' : '';
@@ -3206,7 +3219,7 @@ function renderReportSalesTable(){
       <td class="num"><b>${fmt(safeSaleTotal(s))}</b></td>
       <td><button type="button" class="report-click-btn" data-sale-detail="${escapeHtml(String(s.id||''))}">Detalhar</button></td>
     </tr>`;
-  }).join('') : `<tr><td colspan="9" style="color:var(--ink-soft);">${rawTerm ? 'Nenhuma venda do per\u00edodo cont\u00e9m esse produto.' : 'Nenhuma venda no per\u00edodo selecionado.'}</td></tr>`;
+  }).join('') : `<tr><td colspan="9" style="color:var(--ink-soft);">${rawTerm ? 'Nenhuma venda do per\u00edodo corresponde \u00e0 busca.' : 'Nenhuma venda no per\u00edodo selecionado.'}</td></tr>`;
   salesBody.querySelectorAll('[data-sale-detail]').forEach(btn=>{
     btn.addEventListener('click', ()=>openSaleDetailModal(btn.dataset.saleDetail));
   });
