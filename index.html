@@ -3548,11 +3548,11 @@ function readCaixa_(ss) {
   return values.map(function (r) {
     return {
       id: String(r[map['ID Sessão']] || ''),
-      date: String(r[map['Data']] || ''),
-      openedAt: String(r[map['Hora Abertura']] || ''),
+      date: fmtDate_(r[map['Data']]),
+      openedAt: fmtStamp_(r[map['Hora Abertura']]),
       openingAmount: Number(r[map['Valor Abertura']]) || 0,
       openingNotes: String(r[map['Obs. Abertura']] || ''),
-      closedAt: String(r[map['Hora Fechamento']] || ''),
+      closedAt: fmtStamp_(r[map['Hora Fechamento']]),
       expected: {
         'Dinheiro': Number(r[map['Dinheiro Esperado']]) || 0,
         'Pix': Number(r[map['Pix Esperado']]) || 0,
@@ -3574,7 +3574,7 @@ function readCaixa_(ss) {
       diffTotal: Number(r[map['Diferença Total']]) || 0,
       closingNotes: String(r[map['Obs. Fechamento']] || ''),
       status: String(r[map['Status']] || 'aberto'),
-      updatedAt: String(r[map['Atualizado Em']] || '')
+      updatedAt: fmtStamp_(r[map['Atualizado Em']])
     };
   }).filter(function (s) { return s.id; });
 }
@@ -3590,6 +3590,25 @@ function syncProdutos_(ss, products) {
 
 function safeJson_(txt, fallback) {
   try { return txt ? JSON.parse(txt) : fallback; } catch (e) { return fallback; }
+}
+
+function tz_() {
+  return Session.getScriptTimeZone() || 'America/Fortaleza';
+}
+// Formata célula de DATA (ex.: 2026-07-03), mesmo que o Sheets tenha convertido o valor em objeto Date
+function fmtDate_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz_(), 'yyyy-MM-dd');
+  return String(v || '');
+}
+// Formata célula de HORA curta (ex.: 06:57), mesmo que o Sheets tenha convertido o valor em objeto Date
+function fmtTime_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz_(), 'HH:mm');
+  return String(v || '');
+}
+// Formata célula de DATA+HORA completa (ex.: 2026-07-03 06:57:01), mesmo que o Sheets tenha convertido o valor em objeto Date
+function fmtStamp_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz_(), 'yyyy-MM-dd HH:mm:ss');
+  return String(v || '');
 }
 
 function readProdutos_(ss) {
@@ -3609,7 +3628,7 @@ function readProdutos_(ss) {
       stock: Number(r[map['Estoque']]) || 0,
       minStock: Number(r[map['Estoque Mínimo']]) || 0,
       isService: String(r[map['Tipo']] || '') === 'Serviço',
-      updatedAt: String(r[map['Atualizado Em']] || '')
+      updatedAt: fmtStamp_(r[map['Atualizado Em']])
     };
   }).filter(function (p) { return p.id; });
 }
@@ -3629,8 +3648,8 @@ function readVendas_(ss) {
       var partsJson = map['Partes Pagamento JSON'] != null ? r[map['Partes Pagamento JSON']] : '';
       byId[id] = {
         id: id,
-        date: String(r[map['Data']] || ''),
-        time: String(r[map['Hora']] || ''),
+        date: fmtDate_(r[map['Data']]),
+        time: fmtTime_(r[map['Hora']]),
         saleType: String(r[map['Tipo']] || ''),
         customerName: String(r[map['Cliente']] || ''),
         items: safeJson_(itemsJson, []),
@@ -3640,10 +3659,10 @@ function readVendas_(ss) {
         total: Number(r[map['Total Venda']]) || 0,
         payment: String(r[map['Forma Pagamento']] || ''),
         paymentParts: safeJson_(partsJson, []),
-        updatedAt: String(r[map['Atualizado Em']] || ''),
+        updatedAt: fmtStamp_(r[map['Atualizado Em']]),
         canceled: map['Cancelada'] != null ? String(r[map['Cancelada']] || '') === 'SIM' : false,
         cancelReason: map['Motivo Cancelamento'] != null ? String(r[map['Motivo Cancelamento']] || '') : '',
-        canceledAt: map['Cancelada Em'] != null ? String(r[map['Cancelada Em']] || '') : ''
+        canceledAt: map['Cancelada Em'] != null ? fmtStamp_(r[map['Cancelada Em']]) : ''
       };
     }
     if (!byId[id].items.length) {
@@ -3668,12 +3687,12 @@ function readRetiradas_(ss) {
   return values.map(function (r) {
     return {
       id: String(r[map['ID']] || ''),
-      date: String(r[map['Data']] || ''),
-      time: String(r[map['Hora']] || ''),
+      date: fmtDate_(r[map['Data']]),
+      time: fmtTime_(r[map['Hora']]),
       description: String(r[map['Descrição']] || ''),
       payment: String(r[map['Forma']] || 'Dinheiro'),
       amount: Number(r[map['Valor']]) || 0,
-      updatedAt: String(r[map['Atualizado Em']] || '')
+      updatedAt: fmtStamp_(r[map['Atualizado Em']])
     };
   }).filter(function (w) { return w.id; });
 }`;
