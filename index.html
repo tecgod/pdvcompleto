@@ -3627,9 +3627,21 @@ function appendVenda_(ss, sale) {
 function appendRetirada_(ss, w) {
   if (!w || !w.id) return;
   var sheet = getOrCreateSheet_(ss, 'Retiradas', retiradasHeaders_());
+  ensureHeaders_(sheet, retiradasHeaders_());
   var ids = existingIds_(sheet, 'ID', 3);
   if (ids[w.id]) return;
-  sheet.appendRow([w.date || '', w.time || '', w.id, w.description || '', w.category || '', w.payment || 'Dinheiro', w.amount || 0, w.updatedAt || '']);
+  var map = headerMap_(sheet);
+  var row = new Array(sheet.getLastColumn()).fill('');
+  function setCol(name, value) { if (map[name] != null) row[map[name]] = value; }
+  setCol('Data', w.date || '');
+  setCol('Hora', w.time || '');
+  setCol('ID', w.id);
+  setCol('Descrição', w.description || '');
+  setCol('Categoria', w.category || '');
+  setCol('Forma', w.payment || 'Dinheiro');
+  setCol('Valor', w.amount || 0);
+  setCol('Atualizado Em', w.updatedAt || '');
+  sheet.appendRow(row);
 }
 
 function upsertCaixa_(ss, session) {
