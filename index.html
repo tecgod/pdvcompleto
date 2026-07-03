@@ -678,6 +678,17 @@
             </div>
 
             <div class="card card-pad" style="margin-top:20px;">
+              <div class="section-title"><h2>Gerenciar retiradas por data</h2></div>
+              <p class="helper-text" style="margin-top:0;">Use aqui para excluir uma retirada de um dia anterior (ex: um registro de teste). Isso apaga o registro do aparelho — se ele já foi enviado para a planilha, apague a linha lá também.</p>
+              <div class="field">
+                <label>Data</label>
+                <input type="date" id="mgWithdrawalDate">
+              </div>
+              <button type="button" class="btn btn-ghost btn-block" id="mgWithdrawalSearchBtn">Buscar retiradas dessa data</button>
+              <div id="mgWithdrawalResults" style="margin-top:14px;"></div>
+            </div>
+
+            <div class="card card-pad" style="margin-top:20px;">
               <div class="section-title"><h2>Dados do comprovante</h2></div>
               <p class="helper-text" style="margin-top:0;">Essas informações aparecem no cabeçalho e rodapé dos comprovantes impressos (A4 e 80mm).</p>
               <div class="field">
@@ -3500,6 +3511,8 @@ function doPost(e) {
       syncProdutos_(ss, data.products || []);
     } else if (data.type === 'caixa') {
       upsertCaixa_(ss, data.session);
+    } else if (data.type === 'ping') {
+      // Apenas testa a conexão, não altera nada na planilha.
     } else if (data.type === 'backup_completo') {
       if (data.products) syncProdutos_(ss, data.products);
       if (data.sales) data.sales.forEach(function (s) { appendVenda_(ss, s); });
@@ -4142,7 +4155,7 @@ document.getElementById('testBackupBtn').addEventListener('click', async ()=>{
   const cfg = await getBackupConfig();
   if(!cfg.url){ showToast('Configure a URL primeiro'); return; }
   backupLog('Testando conexão...');
-  const result = await postToSheet('produtos', {products: []});
+  const result = await postToSheet('ping', {});
   if(result.success){ backupLog('✅ Conexão OK — planilha respondeu com sucesso.'); await pullFromSheet(); showToast('Conexão com a planilha funcionando!'); }
   else{ backupLog('❌ Falha na conexão: ' + (result.error||'erro desconhecido')); showToast('Falha ao conectar. Veja o log.'); }
 });
@@ -4322,6 +4335,57 @@ async function importBackupFromFile(file){
     showToast('Arquivo inválido ou corrompido. Veja o log.');
   }
 }
+async function renderWithdrawalManagerResults(dateKey){
+  const wrap = document.getElementById('mgWithdrawalResults');
+  if(!wrap) return;
+  const arrRaw = await loadDayWithdrawals(dateKey);
+  const arr = Array.isArray(arrRaw) ? arrRaw : [];
+  if(arr.length===0){
+    wrap.innerHTML = `<p class="helper-text" style="margin-bottom:0;">Nenhuma retirada encontrada em ${formatDateBR(dateKey)}.</p>`;
+    return;
+  }
+  wrap.innerHTML = `
+    <div class="report-table-wrap">
+      <table>
+        <thead><tr><th>Hora</th><th>Descrição</th><th>Categoria</th><th>Forma</th><th class="num">Valor</th><th></th></tr></thead>
+        <tbody>
+          ${arr.map(w=>`<tr>
+            <td>${escapeHtml(String(w.time||'--'))}</td>
+            <td>${escapeHtml(w.description||'—')}</td>
+            <td>${escapeHtml(w.category||'—')}</td>
+            <td>${escapeHtml(getWithdrawalPayment(w))}</td>
+            <td class="num">${fmt(w.amount)}</td>
+            <td><button type="button" class="btn btn-danger btn-sm" data-mg-del="${escapeHtml(String(w.id))}">Excluir</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  wrap.querySelectorAll('[data-mg-del]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Excluir esta retirada do aparelho? Se ela já foi enviada para a planilha, apague a linha lá também.')) return;
+      const current = (await loadDayWithdrawals(dateKey)) || [];
+      const filtered = current.filter(w=>String(w.id)!==String(btn.dataset.mgDel));
+      await saveDayWithdrawals(dateKey, filtered);
+      showToast('Retirada excluída do aparelho');
+      renderWithdrawalManagerResults(dateKey);
+      if(dateKey === todayKey()){
+        refreshCaixaView();
+        refreshRegisterDisplay();
+        refreshCaixaSummary();
+        refreshCaixaSessionView();
+      }
+      refreshReportsLive();
+    });
+  });
+}
+const mgWithdrawalSearchBtn = document.getElementById('mgWithdrawalSearchBtn');
+if(mgWithdrawalSearchBtn) mgWithdrawalSearchBtn.addEventListener('click', ()=>{
+  const dateEl = document.getElementById('mgWithdrawalDate');
+  const dateKey = dateEl && dateEl.value ? dateEl.value : todayKey();
+  if(dateEl && !dateEl.value) dateEl.value = dateKey;
+  renderWithdrawalManagerResults(dateKey);
+});
+
 document.getElementById('exportBackupFileBtn').addEventListener('click', exportBackupToFile);
 document.getElementById('importBackupFileBtn').addEventListener('click', ()=>{
   document.getElementById('importBackupFileInput').click();
