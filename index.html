@@ -36,7 +36,9 @@
   /* Sidebar */
   .sidebar{width:220px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:20px 14px;}
   .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 22px 8px;}
-  .brand-mark{width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-family:'Fraunces',serif;font-size:16px;flex-shrink:0;box-shadow:0 0 0 2px var(--surface), 0 0 0 3.5px var(--brass);}
+  .brand-mark{width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-family:'Fraunces',serif;font-size:16px;flex-shrink:0;box-shadow:0 0 0 2px var(--surface), 0 0 0 3.5px var(--brass);overflow:hidden;}
+  .brand-mark img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;}
+  .brand-mark.has-logo{background:transparent;}
   .brand-name{font-family:'Fraunces',serif;font-weight:600;font-size:17px;letter-spacing:-.01em;}
   .nav-btn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:11px 12px;border:none;background:transparent;border-radius:9px;font-size:14.5px;font-weight:600;color:var(--ink-soft);cursor:pointer;margin-bottom:3px;font-family:'Inter',sans-serif;transition:background .12s,color .12s;}
   .nav-btn:hover{background:var(--bg);color:var(--ink);}
@@ -328,8 +330,8 @@
 <div class="app">
   <div class="sidebar">
     <div class="brand">
-      <div class="brand-mark">$</div>
-      <div class="brand-name">Meu PDV</div>
+      <div class="brand-mark" id="brandMark">$</div>
+      <div class="brand-name" id="brandName">Meu PDV</div>
     </div>
     <button class="nav-btn active" data-view="vendas"><span class="nav-icon">🛒</span> Vendas</button>
     <button class="nav-btn" data-view="produtos"><span class="nav-icon">📦</span> Produtos</button>
@@ -378,8 +380,9 @@
             </div>
             <div id="cartItems"></div>
             <div id="cartEmpty" class="empty-state" style="display:none; padding:30px 10px;">
-              <div class="ee-icon">🛒</div>
-              Toque em um produto para adicionar à venda
+              <div class="ee-icon">🟢</div>
+              <strong style="display:block; color:var(--ink); font-size:15px; margin-bottom:4px;">Caixa livre</strong>
+              Toque em um produto para iniciar uma nova venda
             </div>
             <div class="subtotal-row">
               <span>Subtotal</span>
@@ -604,6 +607,28 @@
       <div class="view" id="view-backup">
         <div class="grid-2">
           <div>
+            <div class="card card-pad" style="margin-bottom:20px;">
+              <div class="section-title"><h2>Identidade visual</h2></div>
+              <p class="helper-text" style="margin-top:0;">Personalize o nome do negócio e a logomarca exibidos no menu lateral.</p>
+              <div class="field">
+                <label>Nome do negócio</label>
+                <input type="text" id="brandNameInput" placeholder="Ex: PDV Comercial M&amp;C, PDV Sonho de Padaria...">
+              </div>
+              <div class="field">
+                <label>Logomarca</label>
+                <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+                  <div class="brand-mark" id="brandLogoPreview" style="width:52px;height:52px;font-size:20px;">$</div>
+                  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button type="button" class="btn btn-ghost btn-sm" id="chooseLogoBtn">Escolher imagem</button>
+                    <button type="button" class="btn btn-danger btn-sm" id="removeLogoBtn" style="display:none;">Remover logo</button>
+                  </div>
+                  <input type="file" id="logoFileInput" accept="image/*" style="display:none;">
+                </div>
+                <p class="helper-text" style="margin-bottom:0;">Use uma imagem quadrada, de preferência PNG com fundo transparente (máx. 2MB).</p>
+              </div>
+              <button class="btn btn-primary" id="saveBrandingBtn">Salvar identidade visual</button>
+            </div>
+
             <div class="card card-pad">
               <div class="section-title"><h2>Conexão com Google Sheets</h2></div>
               <p class="helper-text" style="margin-top:0;">Cole aqui a URL do seu Web App do Google Apps Script (veja o passo a passo ao lado) para enviar vendas, retiradas e o catálogo de produtos direto para uma planilha Google.</p>
@@ -1199,6 +1224,75 @@ async function loadCategories(){
 async function saveCategories(){
   await storageSet('categories', categories);
 }
+
+/* ---------- Identidade visual (nome do negócio + logomarca) ---------- */
+let branding = { name: 'Meu PDV', logo: '' };
+async function loadBranding(){
+  branding = (await storageGet('branding')) || { name: 'Meu PDV', logo: '' };
+  applyBranding();
+}
+async function saveBranding(){
+  const nameInput = document.getElementById('brandNameInput');
+  branding.name = (nameInput ? nameInput.value : '').trim() || 'Meu PDV';
+  await storageSet('branding', branding);
+  applyBranding();
+  showToast('Identidade visual salva');
+}
+function applyBranding(){
+  const name = (branding.name || '').trim() || 'Meu PDV';
+  const initial = name.trim().charAt(0).toLocaleUpperCase('pt-BR') || '$';
+
+  const nameEl = document.getElementById('brandName');
+  if(nameEl) nameEl.textContent = name;
+  document.title = name;
+
+  const markEl = document.getElementById('brandMark');
+  if(markEl){
+    if(branding.logo){
+      markEl.innerHTML = `<img src="${branding.logo}" alt="Logo">`;
+      markEl.classList.add('has-logo');
+    } else {
+      markEl.textContent = initial;
+      markEl.classList.remove('has-logo');
+    }
+  }
+
+  const nameInput = document.getElementById('brandNameInput');
+  if(nameInput && document.activeElement !== nameInput) nameInput.value = branding.name || '';
+
+  const preview = document.getElementById('brandLogoPreview');
+  if(preview){
+    if(branding.logo){
+      preview.innerHTML = `<img src="${branding.logo}" alt="Logo">`;
+      preview.classList.add('has-logo');
+    } else {
+      preview.textContent = initial;
+      preview.classList.remove('has-logo');
+    }
+  }
+
+  const removeBtn = document.getElementById('removeLogoBtn');
+  if(removeBtn) removeBtn.style.display = branding.logo ? 'inline-flex' : 'none';
+}
+document.getElementById('chooseLogoBtn').addEventListener('click', ()=>document.getElementById('logoFileInput').click());
+document.getElementById('logoFileInput').addEventListener('change', (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  if(!file.type.startsWith('image/')){ showToast('Selecione um arquivo de imagem'); e.target.value=''; return; }
+  if(file.size > 2*1024*1024){ showToast('Imagem muito grande (máx. 2MB)'); e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    branding.logo = reader.result;
+    applyBranding();
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+document.getElementById('removeLogoBtn').addEventListener('click', ()=>{
+  branding.logo = '';
+  applyBranding();
+});
+document.getElementById('saveBrandingBtn').addEventListener('click', saveBranding);
 async function loadDaySales(dateKey){
   return (await storageGet('sales:'+dateKey)) || [];
 }
@@ -2642,15 +2736,17 @@ function openProductModal(id, options={}){
     const stock = isService ? 0 : (parseInt(document.getElementById('mStock').value) || 0);
     const minStock = isService ? 0 : (parseInt(document.getElementById('mMinStock').value) || 0);
 
-    const dup = findPossibleDuplicateProduct(name, code, editing ? editing.id : null);
-    if(dup){
-      const msg = dup.reason==='code'
-        ? `Já existe um produto cadastrado com o código "${dup.product.code}": ${dup.product.name}.`
-        : `Já existe um produto parecido: "${dup.product.name}".`;
-      const proceed = await showYesNoModal('Possível duplicidade', msg + '\n\nDeseja continuar o cadastro?');
-      if(!proceed){
-        focusAndSelect(document.getElementById('mName'));
-        return;
+    if(!editing){
+      const dup = findPossibleDuplicateProduct(name, code, null);
+      if(dup){
+        const msg = dup.reason==='code'
+          ? `Já existe um produto cadastrado com o código "${dup.product.code}": ${dup.product.name}.`
+          : `Já existe um produto parecido: "${dup.product.name}".`;
+        const proceed = await showYesNoModal('Possível duplicidade', msg + '\n\nDeseja continuar o cadastro?');
+        if(!proceed){
+          focusAndSelect(document.getElementById('mName'));
+          return;
+        }
       }
     }
 
@@ -4074,6 +4170,7 @@ installEnterFlow(document.getElementById('view-backup'), ['backupUrl'], ()=>docu
 
 /* ---------- Init ---------- */
 async function init(){
+  await loadBranding();
   await loadProducts();
   await loadCategories();
   setSyncStatus(navigator.onLine ? 'Sincroniza&ccedil;&atilde;o pronta' : 'Offline: vendas locais ativadas', navigator.onLine ? 'online' : 'offline');
