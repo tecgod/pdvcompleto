@@ -199,6 +199,13 @@
   .field-inline-btn select{flex:1;}
 
   .caixa-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px;}
+  .caixa-stat-grid .stat-card{cursor:pointer;transition:box-shadow .15s,border-color .15s;text-align:left;display:block;width:100%;font-family:inherit;}
+  .caixa-stat-grid .stat-card:hover,.caixa-stat-grid .stat-card:focus-visible{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);outline:none;}
+  .caixa-detail-table{width:100%;border-collapse:collapse;margin:8px 0 4px;}
+  .caixa-detail-table th,.caixa-detail-table td{padding:7px 6px;border-bottom:1px solid var(--line);font-size:13px;text-align:right;}
+  .caixa-detail-table th:first-child,.caixa-detail-table td:first-child,
+  .caixa-detail-table th:nth-child(2),.caixa-detail-table td:nth-child(2),
+  .caixa-detail-table th:nth-child(3),.caixa-detail-table td:nth-child(3){text-align:left;}
   .report-click-btn{font-size:12px;padding:5px 9px;border-radius:7px;border:1px solid var(--line);background:#fff;color:var(--accent-dark);font-weight:700;cursor:pointer;}
   .report-click-btn:hover{background:var(--accent-soft);}
   .sale-detail-list{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:12px 0;}
@@ -462,14 +469,14 @@
         </div>
         <div class="card card-pad" style="margin-bottom:20px;">
           <div class="section-title"><h2>Dashboard do caixa de hoje</h2></div>
-          <div class="caixa-stat-grid">
-            <div class="stat-card"><div class="s-label">Total entrou hoje</div><div class="s-value" id="caixaTotalVendido">R$ 0,00</div><div class="s-sub" id="caixaQtdVendas">0 vendas</div></div>
-            <div class="stat-card"><div class="s-label">Total saiu hoje</div><div class="s-value" id="caixaRetiradas">R$ 0,00</div><div class="s-sub" id="caixaQtdRetiradas">0 retiradas</div></div>
-            <div class="stat-card"><div class="s-label">Saldo geral do dia</div><div class="s-value" id="caixaSaldoGeral">R$ 0,00</div><div class="s-sub">entradas − saídas</div></div>
-            <div class="stat-card"><div class="s-label">Saldo dinheiro</div><div class="s-value" id="caixaSaldoDinheiro">R$ 0,00</div><div class="s-sub"><span id="caixaDinheiro">R$ 0,00</span> entrou · <span id="caixaSaiuDinheiro">R$ 0,00</span> saiu</div></div>
-            <div class="stat-card"><div class="s-label">Saldo Pix</div><div class="s-value" id="caixaSaldoPix">R$ 0,00</div><div class="s-sub"><span id="caixaPix">R$ 0,00</span> entrou · <span id="caixaSaiuPix">R$ 0,00</span> saiu</div></div>
-            <div class="stat-card"><div class="s-label">Saldo Débito</div><div class="s-value" id="caixaSaldoDebito">R$ 0,00</div><div class="s-sub"><span id="caixaDebito">R$ 0,00</span> entrou · <span id="caixaSaiuDebito">R$ 0,00</span> saiu</div></div>
-            <div class="stat-card"><div class="s-label">Saldo Crédito</div><div class="s-value" id="caixaSaldoCredito">R$ 0,00</div><div class="s-sub"><span id="caixaCredito">R$ 0,00</span> entrou · <span id="caixaSaiuCredito">R$ 0,00</span> saiu</div></div>
+          <div class="caixa-stat-grid" id="caixaStatGrid">
+            <button type="button" class="stat-card" data-caixa-detail="entrada"><div class="s-label">Total entrou hoje</div><div class="s-value" id="caixaTotalVendido">R$ 0,00</div><div class="s-sub" id="caixaQtdVendas">0 vendas</div></button>
+            <button type="button" class="stat-card" data-caixa-detail="saida"><div class="s-label">Total saiu hoje</div><div class="s-value" id="caixaRetiradas">R$ 0,00</div><div class="s-sub" id="caixaQtdRetiradas">0 retiradas</div></button>
+            <button type="button" class="stat-card" data-caixa-detail="saldoGeral"><div class="s-label">Saldo geral do dia</div><div class="s-value" id="caixaSaldoGeral">R$ 0,00</div><div class="s-sub">entradas − saídas</div></button>
+            <button type="button" class="stat-card" data-caixa-detail="dinheiro"><div class="s-label">Saldo dinheiro</div><div class="s-value" id="caixaSaldoDinheiro">R$ 0,00</div><div class="s-sub"><span id="caixaDinheiro">R$ 0,00</span> entrou · <span id="caixaSaiuDinheiro">R$ 0,00</span> saiu</div></button>
+            <button type="button" class="stat-card" data-caixa-detail="pix"><div class="s-label">Saldo Pix</div><div class="s-value" id="caixaSaldoPix">R$ 0,00</div><div class="s-sub"><span id="caixaPix">R$ 0,00</span> entrou · <span id="caixaSaiuPix">R$ 0,00</span> saiu</div></button>
+            <button type="button" class="stat-card" data-caixa-detail="debito"><div class="s-label">Saldo Débito</div><div class="s-value" id="caixaSaldoDebito">R$ 0,00</div><div class="s-sub"><span id="caixaDebito">R$ 0,00</span> entrou · <span id="caixaSaiuDebito">R$ 0,00</span> saiu</div></button>
+            <button type="button" class="stat-card" data-caixa-detail="credito"><div class="s-label">Saldo Crédito</div><div class="s-value" id="caixaSaldoCredito">R$ 0,00</div><div class="s-sub"><span id="caixaCredito">R$ 0,00</span> entrou · <span id="caixaSaiuCredito">R$ 0,00</span> saiu</div></button>
           </div>
         </div>
         <div class="grid-2">
@@ -1110,10 +1117,15 @@ function checkAppPassword(message){
 }
 
 /* ---------- Data loading ---------- */
+function sortProductsAlphabetically(){
+  products.sort((a,b)=> String(a.name||'').localeCompare(String(b.name||''), 'pt-BR', {sensitivity:'base'}));
+}
 async function loadProducts(){
   products = (await storageGet('products')) || [];
+  sortProductsAlphabetically();
 }
 async function saveProducts(){
+  sortProductsAlphabetically();
   await storageSet('products', products);
 }
 async function loadCategories(){
@@ -1202,6 +1214,88 @@ async function refreshCaixaSummary(){
   setText('caixaCredito', fmt(summary.byIn['Crédito']||0));
   setText('caixaSaiuCredito', fmt(summary.byOut['Crédito']||0));
   setText('caixaSaldoCredito', fmt(summary.byBalance['Crédito']||0));
+}
+
+async function openCaixaDetailModal(kind){
+  const summary = await getTodayCashSummary();
+  const sales = summary.sales.filter(s=>!s.canceled);
+  const withdrawals = summary.withdrawals.filter(w=>!w.canceled);
+
+  const saleRow = (s, amountOverride)=>{
+    const label = s.saleType==='cliente' && s.customerName ? escapeHtml(s.customerName) : 'Balcão';
+    const payLabel = escapeHtml(getSalePaymentLabel(s));
+    const amount = amountOverride!=null ? amountOverride : safeSaleTotal(s);
+    return `<tr><td>${escapeHtml(String(s.time||'--'))}</td><td>${label}</td><td>${payLabel}</td><td class="num">${fmt(amount)}</td></tr>`;
+  };
+  const withdrawalRow = (w)=>`<tr><td>${escapeHtml(String(w.time||'--'))}</td><td>${escapeHtml(w.description||'—')}</td><td>${escapeHtml(getWithdrawalPayment(w))}</td><td class="num">${fmt(w.amount)}</td></tr>`;
+  const table = (rowsHtml, emptyMsg, col2)=> rowsHtml ? `
+    <div class="report-table-wrap">
+      <table class="caixa-detail-table">
+        <thead><tr><th>Hora</th><th>${col2}</th><th>Forma</th><th>Valor</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>` : `<p class="helper-text">${emptyMsg}</p>`;
+
+  let title = '';
+  let bodyHtml = '';
+
+  if(kind==='entrada'){
+    title = 'Total que entrou hoje';
+    bodyHtml = `<p class="helper-text" style="margin-top:-8px;">${sales.length} ${sales.length===1?'venda':'vendas'} · Total ${fmt(summary.totalEntrada)}</p>`
+      + table(sales.map(s=>saleRow(s)).join(''), 'Nenhuma venda registrada hoje.', 'Cliente');
+  } else if(kind==='saida'){
+    title = 'Total que saiu hoje';
+    bodyHtml = `<p class="helper-text" style="margin-top:-8px;">${withdrawals.length} ${withdrawals.length===1?'retirada':'retiradas'} · Total ${fmt(summary.totalSaida)}</p>`
+      + table(withdrawals.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada registrada hoje.', 'Descrição');
+  } else if(kind==='saldoGeral'){
+    title = 'Saldo geral do dia';
+    bodyHtml = `
+      <table class="caixa-close-table" style="margin-top:0;">
+        <tbody>
+          <tr><td>Total entrou (${sales.length} ${sales.length===1?'venda':'vendas'})</td><td class="num">${fmt(summary.totalEntrada)}</td></tr>
+          <tr><td>Total saiu (${withdrawals.length} ${withdrawals.length===1?'retirada':'retiradas'})</td><td class="num">− ${fmt(summary.totalSaida)}</td></tr>
+          <tr class="caixa-close-total-row"><td>Saldo geral</td><td class="num">${fmt(summary.saldoGeral)}</td></tr>
+        </tbody>
+      </table>`;
+  } else {
+    const methodMap = {dinheiro:'Dinheiro', pix:'Pix', debito:'Débito', credito:'Crédito'};
+    const method = methodMap[kind] || 'Dinheiro';
+    title = 'Saldo ' + method;
+    const salesForMethod = sales.filter(s=>getPaymentAmount(s, method) > 0);
+    const withdrawalsForMethod = withdrawals.filter(w=>getWithdrawalPayment(w)===method);
+    bodyHtml = `
+      <p class="helper-text" style="margin-top:-8px;">Entrou ${fmt(summary.byIn[method]||0)} · Saiu ${fmt(summary.byOut[method]||0)} · Saldo ${fmt(summary.byBalance[method]||0)}</p>
+      <h4 style="margin:14px 0 6px;">Entradas em ${method}</h4>
+      ${table(salesForMethod.map(s=>saleRow(s, getPaymentAmount(s, method))).join(''), 'Nenhuma venda em ' + method + ' hoje.', 'Cliente')}
+      <h4 style="margin:14px 0 6px;">Saídas em ${method}</h4>
+      ${table(withdrawalsForMethod.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada em ' + method + ' hoje.', 'Descrição')}
+    `;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:540px;">
+      <h3 style="margin-top:0;">${escapeHtml(title)}</h3>
+      ${bodyHtml}
+      <div style="display:flex; justify-content:flex-end; margin-top:16px;">
+        <button type="button" class="btn btn-ghost" id="caixaDetailClose">Fechar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=>{ overlay.remove(); document.removeEventListener('keydown', escHandler); };
+  function escHandler(e){ if(e.key==='Escape') close(); }
+  overlay.querySelector('#caixaDetailClose').addEventListener('click', close);
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) close(); });
+  document.addEventListener('keydown', escHandler);
+}
+const caixaStatGridEl = document.getElementById('caixaStatGrid');
+if(caixaStatGridEl){
+  caixaStatGridEl.addEventListener('click', (e)=>{
+    const card = e.target.closest('[data-caixa-detail]');
+    if(!card) return;
+    openCaixaDetailModal(card.dataset.caixaDetail);
+  });
 }
 
 /* ---------- Abertura / fechamento de caixa ---------- */
@@ -1570,6 +1664,51 @@ function renderProductGrid(){
   grid.querySelectorAll('.product-tile:not(.disabled)').forEach(tile=>{
     tile.addEventListener('click', ()=> openQuantityModal(tile.dataset.id));
   });
+}
+function normalizeProductName(s){
+  return String(s||'')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLocaleUpperCase('pt-BR')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function levenshteinDistance(a, b){
+  const m = a.length, n = b.length;
+  if(m===0) return n;
+  if(n===0) return m;
+  const prev = new Array(n+1);
+  const curr = new Array(n+1);
+  for(let j=0;j<=n;j++) prev[j]=j;
+  for(let i=1;i<=m;i++){
+    curr[0]=i;
+    for(let j=1;j<=n;j++){
+      const cost = a[i-1]===b[j-1] ? 0 : 1;
+      curr[j] = Math.min(curr[j-1]+1, prev[j]+1, prev[j-1]+cost);
+    }
+    for(let j=0;j<=n;j++) prev[j]=curr[j];
+  }
+  return prev[n];
+}
+function findPossibleDuplicateProduct(name, code, excludeId){
+  const normName = normalizeProductName(name);
+  const normCode = String(code||'').trim().toLocaleUpperCase('pt-BR');
+  let bestSimilar = null;
+  for(const p of products){
+    if(excludeId && String(p.id)===String(excludeId)) continue;
+    if(normCode && p.code && String(p.code).trim().toLocaleUpperCase('pt-BR')===normCode){
+      return {product:p, reason:'code'};
+    }
+    const pName = normalizeProductName(p.name);
+    if(pName === normName){
+      return {product:p, reason:'exact'};
+    }
+    const maxLen = Math.max(pName.length, normName.length) || 1;
+    const similarity = 1 - (levenshteinDistance(pName, normName) / maxLen);
+    if(similarity >= 0.85 && (!bestSimilar || similarity > bestSimilar.similarity)){
+      bestSimilar = {product:p, reason:'similar', similarity};
+    }
+  }
+  return bestSimilar;
 }
 function escapeHtml(s){
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2303,6 +2442,18 @@ function openProductModal(id, options={}){
     const isService = document.getElementById('mIsService').checked;
     const stock = isService ? 0 : (parseInt(document.getElementById('mStock').value) || 0);
     const minStock = isService ? 0 : (parseInt(document.getElementById('mMinStock').value) || 0);
+
+    const dup = findPossibleDuplicateProduct(name, code, editing ? editing.id : null);
+    if(dup){
+      const msg = dup.reason==='code'
+        ? `Já existe um produto cadastrado com o código "${dup.product.code}": ${dup.product.name}.`
+        : `Possível produto duplicado: já existe "${dup.product.name}" cadastrado no catálogo.`;
+      if(!confirm(msg + '\n\nDeseja cadastrar/salvar mesmo assim?')){
+        focusAndSelect(document.getElementById('mName'));
+        return;
+      }
+    }
+
     let savedProduct;
     if(editing){
       Object.assign(editing, {name, code, category, price, cost: isNaN(cost)?0:cost, stock, minStock, isService, updatedAt: nowStamp()});
@@ -2390,14 +2541,46 @@ if(withdrawalMethodsEl){
     btn.classList.add('selected');
     selectedWithdrawalPayment = btn.dataset.withdrawalPay || 'Dinheiro';
   });
-  withdrawalMethodsEl.addEventListener('keydown', (e)=>{
-    const btn = e.target.closest('.pay-btn');
-    if(!btn || e.key !== 'Enter') return;
-    e.preventDefault();
+  const selectWithdrawalButton = (btn, submit)=>{
+    if(!btn) return;
     withdrawalMethodsEl.querySelectorAll('.pay-btn').forEach(b=>b.classList.remove('selected'));
     btn.classList.add('selected');
     selectedWithdrawalPayment = btn.dataset.withdrawalPay || 'Dinheiro';
-    document.getElementById('addWithdrawalBtn').click();
+    if(submit) document.getElementById('addWithdrawalBtn').click();
+  };
+  withdrawalMethodsEl.addEventListener('keydown', (e)=>{
+    const btn = e.target.closest('.pay-btn');
+    if(!btn) return;
+    const buttons = Array.from(withdrawalMethodsEl.querySelectorAll('.pay-btn'));
+    const cols = 2;
+
+    if(['ArrowRight','ArrowLeft','ArrowUp','ArrowDown'].includes(e.key)){
+      e.preventDefault();
+      const idx = buttons.indexOf(btn);
+      const rows = Math.ceil(buttons.length / cols);
+      let row = Math.floor(idx / cols);
+      let col = idx % cols;
+      if(e.key==='ArrowRight') col = (col + 1) % cols;
+      else if(e.key==='ArrowLeft') col = (col - 1 + cols) % cols;
+      else if(e.key==='ArrowDown') row = (row + 1) % rows;
+      else if(e.key==='ArrowUp') row = (row - 1 + rows) % rows;
+      let newIdx = row * cols + col;
+      if(newIdx >= buttons.length) newIdx = idx;
+      buttons[newIdx].focus();
+      selectWithdrawalButton(buttons[newIdx], false);
+      return;
+    }
+
+    if(['1','2','3','4'].includes(e.key)){
+      e.preventDefault();
+      const target = buttons[Number(e.key) - 1];
+      if(target){ target.focus(); selectWithdrawalButton(target, true); }
+      return;
+    }
+
+    if(e.key !== 'Enter') return;
+    e.preventDefault();
+    selectWithdrawalButton(btn, true);
   });
 }
 
