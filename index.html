@@ -1874,9 +1874,30 @@ async function getSessionCashSummary(session){
     sales = sales.concat(Array.isArray(s) ? s : []);
     withdrawals = withdrawals.concat(Array.isArray(w) ? w : []);
   }
-  const cutoff = session.openedAt || '';
-  sales = sales.filter(s => String(s.updatedAt || '') >= cutoff);
-  withdrawals = withdrawals.filter(w => String(w.updatedAt || '') >= cutoff);
+  // CORREÇÃO: antes comparávamos "updatedAt" (que muda quando a venda/retirada é
+  // editada depois, ex: trocar nome do cliente) com o texto puro de openedAt.
+  // Isso causava dois problemas: (1) uma venda antiga editada hoje "migrava" para
+  // dentro do caixa aberto de hoje, entrando duplicada nos totais; e (2) sessões com
+  // openedAt em formato "sujo" (Date serializado) quebravam a comparação de string.
+  // Agora usamos a data+hora real do evento (gravada uma única vez, na hora da venda/
+  // retirada) comparada via parseFlexibleDate — mesma lógica já usada em
+  // getSessionMovementSummary — para saber se o registro pertence a esta sessão.
+  const lowerDate = parseFlexibleDate(session.openedAt);
+  const lowerTime = lowerDate ? lowerDate.getTime() : null;
+  const eventTime = (o) => {
+    const d = parseFlexibleDate(`${String((o && o.date) || '')} ${String((o && o.time) || '00:00')}:00`);
+    return d ? d.getTime() : null;
+  };
+  const inRange = (o) => {
+    const v = eventTime(o);
+    // Se não conseguirmos interpretar a data do próprio evento, é mais seguro manter
+    // o registro (não escondê-lo) do que descartá-lo por engano.
+    if(v === null) return true;
+    if(lowerTime !== null && v < lowerTime) return false;
+    return true;
+  };
+  sales = sales.filter(s => inRange(s));
+  withdrawals = withdrawals.filter(w => inRange(w));
   const fin = calculateFinancialSummary(sales, withdrawals);
   const expected = {};
   PAYMENT_METHODS.forEach(m => { expected[m] = roundMoney(fin.byBalance[m] || 0); });
