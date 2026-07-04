@@ -1211,86 +1211,6 @@ async function consolidateCashSessionsStorage(){
     // Qualquer erro aqui não deve travar o app nem arriscar os dados: só não limpa agora.
   }
 }
-
-/* ---------- Limpeza definitiva de duplicidade em vendas e retiradas ----------
-   O mesmo problema das sessões de caixa (registro gravado em mais de uma
-   "gaveta" de armazenamento por causa de sincronizações antigas) também pode
-   acontecer com vendas e retiradas, já que usam o mesmo mecanismo de chaves
-   por data. Isso inflava os totais de "entrou"/"saiu" nos relatórios. Aqui
-   fazemos a mesma consolidação seguindo o mesmo princípio: uma única vez,
-   agrupa por id (mantendo a versão mais recente/mais completa), regrava cada
-   registro na data certa e remove só as chaves duplicadas. Nenhuma venda ou
-   retirada real é apagada. */
-function betterFlatRecord(a, b){
-  // Entre duas cópias do mesmo registro (mesmo id), prioriza o estado mais
-  // avançado (cancelado prevalece sobre não cancelado) e, em empate, o mais recente.
-  const ca = (a && a.canceled) ? 1 : 0;
-  const cb = (b && b.canceled) ? 1 : 0;
-  if(cb !== ca) return cb > ca ? b : a;
-  const ta = String((a && a.updatedAt) || '');
-  const tb = String((b && b.updatedAt) || '');
-  return tb > ta ? b : a;
-}
-function canonicalRecordDate(o){
-  const d = parseFlexibleDate(o && o.date);
-  return d ? todayKey(d) : (o && o.date) || todayKey();
-}
-async function consolidateFlatStorage(prefix, flagKey, saveFn){
-  try{
-    const already = await storageGet(flagKey);
-    if(already) return;
-
-    const keys = await storageListKeys(prefix);
-    if(!keys.length){ await storageSet(flagKey, true); return; }
-
-    const byId = new Map();
-    const noId = [];
-    for(const k of keys){
-      const arr = await storageGet(k);
-      if(!Array.isArray(arr)) continue;
-      arr.forEach(o=>{
-        if(!o) return;
-        if(o.id){
-          const key = String(o.id);
-          const current = byId.get(key);
-          byId.set(key, current ? betterFlatRecord(current, o) : o);
-        } else {
-          noId.push(o);
-        }
-      });
-    }
-
-    const finalRecords = Array.from(byId.values()).concat(noId);
-
-    const byDate = {};
-    finalRecords.forEach(o=>{
-      const dk = canonicalRecordDate(o);
-      if(!byDate[dk]) byDate[dk] = [];
-      byDate[dk].push(o);
-    });
-
-    for(const dk of Object.keys(byDate)){
-      await saveFn(dk, byDate[dk]);
-    }
-
-    // Remove só as chaves que não são mais necessárias (as "sujas"/repetidas).
-    const validKeys = new Set(Object.keys(byDate).map(dk => prefix + dk));
-    for(const k of keys){
-      if(!validKeys.has(k)) await storageDeleteKey(k);
-    }
-
-    await storageSet(flagKey, true);
-  }catch(e){
-    // Qualquer erro aqui não deve travar o app nem arriscar os dados: só não limpa agora.
-  }
-}
-async function consolidateSalesStorage(){
-  await consolidateFlatStorage('sales:', 'salesCleanupV1', saveDaySales);
-}
-async function consolidateWithdrawalsStorage(){
-  await consolidateFlatStorage('withdrawals:', 'withdrawalsCleanupV1', saveDayWithdrawals);
-}
-
 async function saveImportedSale(sale){
   if(!sale || !sale.id) return false;
   const dk = sale.date || todayKey();
@@ -1856,18 +1776,14 @@ async function getSessionMovementSummary(session){
   }
   const lower = session.openedAt || '';
   const upper = session.status === 'fechado' ? (session.closedAt || '') : '';
-  // Importante: usamos data+hora do registro (gravados uma única vez, na hora da venda/retirada)
-  // e não "updatedAt" — porque updatedAt muda depois (ex: editar cliente ou cancelar a venda),
-  // o que faria uma venda de ontem "sumir" da sessão de ontem se fosse mexida hoje.
-  const eventStamp = (o) => `${String(o.date || '')} ${String(o.time || '00:00')}:00`;
-  const inRange = (o) => {
-    const v = eventStamp(o);
+  const inRange = (t) => {
+    const v = String(t || '');
     if(lower && v < lower) return false;
     if(upper && v > upper) return false;
     return true;
   };
-  sales = sales.filter(s => inRange(s));
-  withdrawals = withdrawals.filter(w => inRange(w));
+  sales = sales.filter(s => inRange(s.updatedAt));
+  withdrawals = withdrawals.filter(w => inRange(w.updatedAt));
   return Object.assign({sales, withdrawals}, calculateFinancialSummary(sales, withdrawals));
 }
 
@@ -5189,13 +5105,11 @@ async function init(){
   await loadWithdrawalCategories();
   renderWithdrawalCategoryOptions(document.getElementById('wCategory'), '');
   setSyncStatus(navigator.onLine ? 'Sincroniza&ccedil;&atilde;o pronta' : 'Offline: vendas locais ativadas', navigator.onLine ? 'online' : 'offline');
-  await consolidateSalesStorage();
-  await consolidateWithdrawalsStorage();
-  await consolidateCashSessionsStorage();
   renderProductGrid();
   renderCart();
   await refreshRegisterDisplay();
   await refreshCaixaSummary();
+  await consolidateCashSessionsStorage();
   await refreshCaixaSessionView();
   refreshReportsLive();
   processSyncQueue();
