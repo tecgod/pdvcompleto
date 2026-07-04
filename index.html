@@ -512,10 +512,20 @@
           </div>
         </div>
         <div class="card card-pad" style="margin-bottom:20px;">
-          <div class="section-title"><h2>Dashboard do caixa de hoje</h2></div>
+          <div class="section-title"><h2 id="caixaDashboardTitle">Dashboard do caixa de hoje</h2></div>
+          <div class="date-range" style="margin-bottom:6px;">
+            <div class="field">
+              <label>Ver dados de um dia específico</label>
+              <input type="date" id="caixaDashboardDateFilter">
+            </div>
+            <button type="button" class="btn btn-ghost" id="caixaDashboardToday">Hoje</button>
+            <button type="button" class="btn btn-ghost" id="caixaDashboardYesterday">Ontem</button>
+            <button type="button" class="btn btn-ghost" id="caixaDashboardBeforeYesterday">Anteontem</button>
+          </div>
+          <p class="helper-text" id="caixaDashboardDateNote" style="margin-top:0;"></p>
           <div class="caixa-stat-grid" id="caixaStatGrid">
-            <button type="button" class="stat-card" data-caixa-detail="entrada"><div class="s-label">Total entrou hoje</div><div class="s-value" id="caixaTotalVendido">R$ 0,00</div><div class="s-sub" id="caixaQtdVendas">0 vendas</div></button>
-            <button type="button" class="stat-card" data-caixa-detail="saida"><div class="s-label">Total saiu hoje</div><div class="s-value" id="caixaRetiradas">R$ 0,00</div><div class="s-sub" id="caixaQtdRetiradas">0 retiradas</div></button>
+            <button type="button" class="stat-card" data-caixa-detail="entrada"><div class="s-label" id="caixaTotalVendidoLabel">Total entrou hoje</div><div class="s-value" id="caixaTotalVendido">R$ 0,00</div><div class="s-sub" id="caixaQtdVendas">0 vendas</div></button>
+            <button type="button" class="stat-card" data-caixa-detail="saida"><div class="s-label" id="caixaRetiradasLabel">Total saiu hoje</div><div class="s-value" id="caixaRetiradas">R$ 0,00</div><div class="s-sub" id="caixaQtdRetiradas">0 retiradas</div></button>
             <button type="button" class="stat-card" data-caixa-detail="saldoGeral"><div class="s-label">Saldo geral do dia</div><div class="s-value" id="caixaSaldoGeral">R$ 0,00</div><div class="s-sub">entradas − saídas</div></button>
             <button type="button" class="stat-card" data-caixa-detail="dinheiro"><div class="s-label">Saldo dinheiro</div><div class="s-value" id="caixaSaldoDinheiro">R$ 0,00</div><div class="s-sub"><span id="caixaDinheiro">R$ 0,00</span> entrou · <span id="caixaSaiuDinheiro">R$ 0,00</span> saiu</div></button>
             <button type="button" class="stat-card" data-caixa-detail="pix"><div class="s-label">Saldo Pix</div><div class="s-value" id="caixaSaldoPix">R$ 0,00</div><div class="s-sub"><span id="caixaPix">R$ 0,00</span> entrou · <span id="caixaSaiuPix">R$ 0,00</span> saiu</div></button>
@@ -1665,8 +1675,10 @@ function goToView(view){
 }
 
 /* ---------- Register display (top bar) ---------- */
-async function getTodayCashSummary(){
-  const dk = todayKey();
+// dateKey opcional: se não for informado, usa o dia de hoje (comportamento original,
+// mantido para não quebrar quem já chama esta função sem argumento).
+async function getTodayCashSummary(dateKey){
+  const dk = dateKey || todayKey();
   const salesRaw = await loadDaySales(dk);
   const withdrawalsRaw = await loadDayWithdrawals(dk);
   const sales = Array.isArray(salesRaw) ? salesRaw : [];
@@ -1681,9 +1693,36 @@ async function refreshRegisterDisplay(){
   valueEl.textContent = topRegisterUnlocked ? fmt(summary.totalEntrada) : 'R$ ••••••';
 }
 
+// Data selecionada no dashboard do caixa (padrão: hoje = "modo ao vivo").
+let caixaDashboardDate = todayKey();
+
+function isCaixaDashboardToday(){
+  return caixaDashboardDate === todayKey();
+}
+
+function setCaixaDashboardDate(dk){
+  caixaDashboardDate = dk || todayKey();
+  const input = document.getElementById('caixaDashboardDateFilter');
+  if(input) input.value = caixaDashboardDate;
+  refreshCaixaSummary();
+}
+
 async function refreshCaixaSummary(){
-  const summary = await getTodayCashSummary();
+  const dk = caixaDashboardDate || todayKey();
+  const summary = await getTodayCashSummary(dk);
   const setText = (id, value)=>{ const el=document.getElementById(id); if(el) el.textContent=value; };
+  const isToday = isCaixaDashboardToday();
+  const dateLabel = formatDateBRFull(dk);
+
+  const titleEl = document.getElementById('caixaDashboardTitle');
+  if(titleEl) titleEl.textContent = isToday ? 'Dashboard do caixa de hoje' : `Dashboard do caixa — ${dateLabel}`;
+  setText('caixaTotalVendidoLabel', isToday ? 'Total entrou hoje' : 'Total entrou');
+  setText('caixaRetiradasLabel', isToday ? 'Total saiu hoje' : 'Total saiu');
+  const noteEl = document.getElementById('caixaDashboardDateNote');
+  if(noteEl) noteEl.textContent = isToday
+    ? 'Mostrando os dados de hoje em tempo real.'
+    : `Mostrando os dados de ${dateLabel}. Compare esses valores com o relatório de fechamento desse dia no histórico, logo abaixo.`;
+
   setText('caixaTotalVendido', fmt(summary.totalEntrada));
   setText('caixaQtdVendas', summary.sales.length + (summary.sales.length===1?' venda':' vendas'));
   setText('caixaRetiradas', fmt(summary.totalSaida));
@@ -1703,8 +1742,25 @@ async function refreshCaixaSummary(){
   setText('caixaSaldoCredito', fmt(summary.byBalance['Crédito']||0));
 }
 
+const caixaDashboardDateFilterEl = document.getElementById('caixaDashboardDateFilter');
+if(caixaDashboardDateFilterEl){
+  caixaDashboardDateFilterEl.value = caixaDashboardDate;
+  caixaDashboardDateFilterEl.addEventListener('change', (e)=>{
+    setCaixaDashboardDate(e.target.value || todayKey());
+  });
+}
+const caixaDashboardTodayBtn = document.getElementById('caixaDashboardToday');
+if(caixaDashboardTodayBtn) caixaDashboardTodayBtn.addEventListener('click', ()=> setCaixaDashboardDate(todayKey()));
+const caixaDashboardYesterdayBtn = document.getElementById('caixaDashboardYesterday');
+if(caixaDashboardYesterdayBtn) caixaDashboardYesterdayBtn.addEventListener('click', ()=> setCaixaDashboardDate(todayKey(new Date(Date.now() - 86400000))));
+const caixaDashboardBeforeYesterdayBtn = document.getElementById('caixaDashboardBeforeYesterday');
+if(caixaDashboardBeforeYesterdayBtn) caixaDashboardBeforeYesterdayBtn.addEventListener('click', ()=> setCaixaDashboardDate(todayKey(new Date(Date.now() - 2*86400000))));
+
 async function openCaixaDetailModal(kind){
-  const summary = await getTodayCashSummary();
+  const dk = caixaDashboardDate || todayKey();
+  const isToday = isCaixaDashboardToday();
+  const dayWord = isToday ? 'hoje' : `em ${formatDateBRFull(dk)}`;
+  const summary = await getTodayCashSummary(dk);
   const sales = summary.sales.filter(s=>!s.canceled);
   const withdrawals = summary.withdrawals.filter(w=>!w.canceled);
 
@@ -1732,15 +1788,15 @@ async function openCaixaDetailModal(kind){
   let bodyHtml = '';
 
   if(kind==='entrada'){
-    title = 'Total que entrou hoje';
+    title = isToday ? 'Total que entrou hoje' : `Total que entrou em ${formatDateBRFull(dk)}`;
     bodyHtml = `<p class="helper-text" style="margin-top:-8px;">${sales.length} ${sales.length===1?'venda':'vendas'} · Total ${fmt(summary.totalEntrada)}</p>`
-      + table(sales.map(s=>saleRow(s)).join(''), 'Nenhuma venda registrada hoje.', 'Cliente');
+      + table(sales.map(s=>saleRow(s)).join(''), `Nenhuma venda registrada ${dayWord}.`, 'Cliente');
   } else if(kind==='saida'){
-    title = 'Total que saiu hoje';
+    title = isToday ? 'Total que saiu hoje' : `Total que saiu em ${formatDateBRFull(dk)}`;
     bodyHtml = `<p class="helper-text" style="margin-top:-8px;">${withdrawals.length} ${withdrawals.length===1?'retirada':'retiradas'} · Total ${fmt(summary.totalSaida)}</p>`
-      + table(withdrawals.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada registrada hoje.', 'Descrição');
+      + table(withdrawals.map(w=>withdrawalRow(w)).join(''), `Nenhuma retirada registrada ${dayWord}.`, 'Descrição');
   } else if(kind==='saldoGeral'){
-    title = 'Saldo geral do dia';
+    title = isToday ? 'Saldo geral do dia' : `Saldo geral de ${formatDateBRFull(dk)}`;
     bodyHtml = `
       <table class="caixa-close-table" style="margin-top:0;">
         <tbody>
@@ -1752,15 +1808,15 @@ async function openCaixaDetailModal(kind){
   } else {
     const methodMap = {dinheiro:'Dinheiro', pix:'Pix', debito:'Débito', credito:'Crédito'};
     const method = methodMap[kind] || 'Dinheiro';
-    title = 'Saldo ' + method;
+    title = (isToday ? 'Saldo ' + method : `Saldo ${method} — ${formatDateBRFull(dk)}`);
     const salesForMethod = sales.filter(s=>getPaymentAmount(s, method) > 0);
     const withdrawalsForMethod = withdrawals.filter(w=>getWithdrawalPayment(w)===method);
     bodyHtml = `
       <p class="helper-text" style="margin-top:-8px;">Entrou ${fmt(summary.byIn[method]||0)} · Saiu ${fmt(summary.byOut[method]||0)} · Saldo ${fmt(summary.byBalance[method]||0)}</p>
       <h4 style="margin:14px 0 6px;">Entradas em ${method}</h4>
-      ${table(salesForMethod.map(s=>saleRow(s, getPaymentAmount(s, method))).join(''), 'Nenhuma venda em ' + method + ' hoje.', 'Cliente')}
+      ${table(salesForMethod.map(s=>saleRow(s, getPaymentAmount(s, method))).join(''), `Nenhuma venda em ${method} ${dayWord}.`, 'Cliente')}
       <h4 style="margin:14px 0 6px;">Saídas em ${method}</h4>
-      ${table(withdrawalsForMethod.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada em ' + method + ' hoje.', 'Descrição')}
+      ${table(withdrawalsForMethod.map(w=>withdrawalRow(w)).join(''), `Nenhuma retirada em ${method} ${dayWord}.`, 'Descrição')}
     `;
   }
 
@@ -1844,6 +1900,19 @@ function cashSessionDateKeysFull(session){
   return Array.from(keys);
 }
 
+// Categorias padrão de retirada, na ordem em que devem aparecer no relatório
+// (aparecem mesmo com valor zero, para facilitar a leitura do relatório).
+const WITHDRAWAL_CATEGORY_DISPLAY_ORDER = ['FORNECEDOR', 'PESSOAL'];
+function buildWithdrawalCategorySummary(withdrawals){
+  const map = {};
+  (Array.isArray(withdrawals) ? withdrawals : []).filter(w => !w.canceled).forEach(w => {
+    const raw = String((w && w.category) || '').trim();
+    const cat = raw ? raw.toUpperCase() : 'SEM CATEGORIA';
+    map[cat] = roundMoney((map[cat] || 0) + (Number(w.amount) || 0));
+  });
+  return map;
+}
+
 async function getSessionMovementSummary(session){
   const dateKeys = cashSessionDateKeysFull(session);
   let sales = [];
@@ -1854,21 +1923,37 @@ async function getSessionMovementSummary(session){
     sales = sales.concat(Array.isArray(s) ? s : []);
     withdrawals = withdrawals.concat(Array.isArray(w) ? w : []);
   }
-  const lower = session.openedAt || '';
-  const upper = session.status === 'fechado' ? (session.closedAt || '') : '';
   // Importante: usamos data+hora do registro (gravados uma única vez, na hora da venda/retirada)
   // e não "updatedAt" — porque updatedAt muda depois (ex: editar cliente ou cancelar a venda),
   // o que faria uma venda de ontem "sumir" da sessão de ontem se fosse mexida hoje.
-  const eventStamp = (o) => `${String(o.date || '')} ${String(o.time || '00:00')}:00`;
+  //
+  // CORREÇÃO: a comparação abaixo usava as datas como TEXTO puro (string). Sessões
+  // antigas que ficaram com openedAt/closedAt gravados em formato "sujo" (ex: um Date
+  // serializado como "Thu Jul 02 2026 18:48:38 GMT-0300...") quebravam a comparação de
+  // texto e faziam TODO o período ser descartado — por isso o relatório saía zerado.
+  // Agora usamos parseFlexibleDate (a mesma função que já trata datas sujas em outros
+  // pontos do sistema) para comparar os timestamps de verdade, não o texto puro.
+  const lowerDate = parseFlexibleDate(session.openedAt);
+  const upperDate = session.status === 'fechado' ? parseFlexibleDate(session.closedAt) : null;
+  const lowerTime = lowerDate ? lowerDate.getTime() : null;
+  const upperTime = upperDate ? upperDate.getTime() : null;
+  const eventTime = (o) => {
+    const d = parseFlexibleDate(`${String((o && o.date) || '')} ${String((o && o.time) || '00:00')}:00`);
+    return d ? d.getTime() : null;
+  };
   const inRange = (o) => {
-    const v = eventStamp(o);
-    if(lower && v < lower) return false;
-    if(upper && v > upper) return false;
+    const v = eventTime(o);
+    // Se não conseguirmos interpretar a data do próprio evento, é mais seguro manter
+    // o registro no relatório (não escondê-lo) do que descartá-lo por engano.
+    if(v === null) return true;
+    if(lowerTime !== null && v < lowerTime) return false;
+    if(upperTime !== null && v > upperTime) return false;
     return true;
   };
   sales = sales.filter(s => inRange(s));
   withdrawals = withdrawals.filter(w => inRange(w));
-  return Object.assign({sales, withdrawals}, calculateFinancialSummary(sales, withdrawals));
+  const byCategory = buildWithdrawalCategorySummary(withdrawals);
+  return Object.assign({sales, withdrawals, byCategory}, calculateFinancialSummary(sales, withdrawals));
 }
 
 async function openCaixaSessionMovementModal(session){
@@ -1884,6 +1969,22 @@ async function openCaixaSessionMovementModal(session){
   const activeSales = summary.sales.filter(s => !s.canceled);
   const activeWithdrawals = summary.withdrawals.filter(w => !w.canceled);
   const methodRow = (method) => `<tr><td>${escapeHtml(method)}</td><td class="num">${fmt(summary.byIn[method]||0)}</td><td class="num">${fmt(summary.byOut[method]||0)}</td></tr>`;
+  // Retiradas separadas por categoria (Fornecedor / Pessoal / outras que existirem).
+  const byCategory = summary.byCategory || {};
+  const extraCategories = Object.keys(byCategory)
+    .filter(c => !WITHDRAWAL_CATEGORY_DISPLAY_ORDER.includes(c))
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const orderedCategories = WITHDRAWAL_CATEGORY_DISPLAY_ORDER.concat(extraCategories);
+  const categoryTotal = Object.values(byCategory).reduce((a, n) => a + (Number(n) || 0), 0);
+  const categoryRow = (cat) => `<tr><td>${escapeHtml(cat)}</td><td class="num">${fmt(byCategory[cat] || 0)}</td></tr>`;
+  const categoryTableHtml = `
+    <table class="caixa-close-table" style="margin-top:10px;">
+      <thead><tr><th>Retiradas por categoria</th><th>Saiu</th></tr></thead>
+      <tbody>
+        ${orderedCategories.map(categoryRow).join('')}
+        <tr class="caixa-close-total-row"><td>Total retirado</td><td class="num">${fmt(categoryTotal)}</td></tr>
+      </tbody>
+    </table>`;
   const bodyHtml = `
     <p class="helper-text" style="margin-top:-8px;">${activeSales.length} ${activeSales.length===1?'venda':'vendas'} · ${activeWithdrawals.length} ${activeWithdrawals.length===1?'retirada':'retiradas'}</p>
     <table class="caixa-close-table" style="margin-top:0;">
@@ -1893,6 +1994,7 @@ async function openCaixaSessionMovementModal(session){
         <tr class="caixa-close-total-row"><td>Total</td><td class="num">${fmt(summary.totalEntrada)}</td><td class="num">${fmt(summary.totalSaida)}</td></tr>
       </tbody>
     </table>
+    ${categoryTableHtml}
     <table class="caixa-close-table" style="margin-top:10px;">
       <tbody>
         <tr class="caixa-close-total-row"><td>Saldo geral do dia</td><td class="num">${fmt(summary.saldoGeral)}</td></tr>
