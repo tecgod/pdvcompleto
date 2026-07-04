@@ -1285,10 +1285,10 @@ async function consolidateFlatStorage(prefix, flagKey, saveFn){
   }
 }
 async function consolidateSalesStorage(){
-  await consolidateFlatStorage('sales:', 'salesCleanupV2', saveDaySales);
+  await consolidateFlatStorage('sales:', 'salesCleanupV1', saveDaySales);
 }
 async function consolidateWithdrawalsStorage(){
-  await consolidateFlatStorage('withdrawals:', 'withdrawalsCleanupV2', saveDayWithdrawals);
+  await consolidateFlatStorage('withdrawals:', 'withdrawalsCleanupV1', saveDayWithdrawals);
 }
 
 async function saveImportedSale(sale){
@@ -1808,45 +1808,6 @@ async function getOpenCashSession(){
   return null;
 }
 
-/* ---------- Remove registros duplicados (mesmo id) vindos de "gavetas" repetidas ----------
-   Sincronizações antigas podem ter deixado a mesma venda/retirada gravada em mais de
-   uma chave de armazenamento (ex.: uma com a data certa e outra com uma data "suja",
-   corrompida). Isso inflava os totais de "entrou"/"saiu" nos relatórios, contando o
-   mesmo registro duas vezes. Aqui garantimos que, independente de quantas cópias
-   existam no armazenamento, cada id só é contado uma única vez no cálculo. */
-function dedupeById(arr){
-  const seen = new Set();
-  const out = [];
-  (Array.isArray(arr) ? arr : []).forEach(o=>{
-    if(!o) return;
-    const key = o.id != null ? String(o.id) : null;
-    if(key){
-      if(seen.has(key)) return;
-      seen.add(key);
-    }
-    out.push(o);
-  });
-  return out;
-}
-
-/* ---------- Timestamp robusto de um registro (data+hora) ----------
-   Monta o instante real do evento a partir dos campos "date" e "time" do registro,
-   usando parseFlexibleDate — que também entende datas em formatos antigos/corrompidos
-   (ex.: strings vindas de uma sincronização antiga com o Google Sheets) — em vez de
-   comparar texto puro, que quebra se o formato não for exatamente "AAAA-MM-DD". */
-function eventTimestamp(o){
-  const d = parseFlexibleDate(o && o.date);
-  if(!d) return null;
-  const m = String((o && o.time) || '').match(/(\d{1,2}):(\d{2})/);
-  const hh = m ? Number(m[1]) : 0;
-  const mm = m ? Number(m[2]) : 0;
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0).getTime();
-}
-function stampTimestamp(str){
-  const d = parseFlexibleDate(str);
-  return d ? d.getTime() : null;
-}
-
 async function getSessionCashSummary(session){
   const dateKeys = cashSessionDateKeys(session);
   let sales = [];
@@ -1857,8 +1818,6 @@ async function getSessionCashSummary(session){
     sales = sales.concat(Array.isArray(s) ? s : []);
     withdrawals = withdrawals.concat(Array.isArray(w) ? w : []);
   }
-  sales = dedupeById(sales);
-  withdrawals = dedupeById(withdrawals);
   const cutoff = session.openedAt || '';
   sales = sales.filter(s => String(s.updatedAt || '') >= cutoff);
   withdrawals = withdrawals.filter(w => String(w.updatedAt || '') >= cutoff);
@@ -1895,21 +1854,16 @@ async function getSessionMovementSummary(session){
     sales = sales.concat(Array.isArray(s) ? s : []);
     withdrawals = withdrawals.concat(Array.isArray(w) ? w : []);
   }
-  // Remove cópias duplicadas do mesmo registro (mesmo id) antes de somar qualquer coisa —
-  // isso evita contar a mesma venda/retirada duas vezes quando ela ficou salva em mais
-  // de uma "gaveta" de data por causa de uma sincronização antiga.
-  sales = dedupeById(sales);
-  withdrawals = dedupeById(withdrawals);
-  const lower = stampTimestamp(session.openedAt);
-  const upper = session.status === 'fechado' ? stampTimestamp(session.closedAt) : null;
+  const lower = session.openedAt || '';
+  const upper = session.status === 'fechado' ? (session.closedAt || '') : '';
   // Importante: usamos data+hora do registro (gravados uma única vez, na hora da venda/retirada)
   // e não "updatedAt" — porque updatedAt muda depois (ex: editar cliente ou cancelar a venda),
   // o que faria uma venda de ontem "sumir" da sessão de ontem se fosse mexida hoje.
+  const eventStamp = (o) => `${String(o.date || '')} ${String(o.time || '00:00')}:00`;
   const inRange = (o) => {
-    const v = eventTimestamp(o);
-    if(v == null) return true; // não descarta registro cuja data não deu pra entender
-    if(lower != null && v < lower) return false;
-    if(upper != null && v > upper) return false;
+    const v = eventStamp(o);
+    if(lower && v < lower) return false;
+    if(upper && v > upper) return false;
     return true;
   };
   sales = sales.filter(s => inRange(s));
