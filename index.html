@@ -511,7 +511,15 @@
           </div>
         </div>
         <div class="card card-pad" style="margin-bottom:20px;">
-          <div class="section-title"><h2>Dashboard do caixa de hoje</h2></div>
+          <div class="section-title" style="flex-wrap:wrap; gap:10px;">
+            <h2 id="caixaDashboardTitle">Dashboard do caixa de hoje</h2>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div class="field" style="min-width:170px; margin:0;">
+                <input type="date" id="caixaDashboardDate">
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" id="caixaDashboardTodayBtn">Hoje</button>
+            </div>
+          </div>
           <div class="caixa-stat-grid" id="caixaStatGrid">
             <button type="button" class="stat-card" data-caixa-detail="entrada"><div class="s-label">Total entrou hoje</div><div class="s-value" id="caixaTotalVendido">R$ 0,00</div><div class="s-sub" id="caixaQtdVendas">0 vendas</div></button>
             <button type="button" class="stat-card" data-caixa-detail="saida"><div class="s-label">Total saiu hoje</div><div class="s-value" id="caixaRetiradas">R$ 0,00</div><div class="s-sub" id="caixaQtdRetiradas">0 retiradas</div></button>
@@ -1492,14 +1500,20 @@ function goToView(view){
 }
 
 /* ---------- Register display (top bar) ---------- */
-async function getTodayCashSummary(){
-  const dk = todayKey();
+async function getCashSummaryForDate(dateKey){
+  const dk = dateKey || todayKey();
   const salesRaw = await loadDaySales(dk);
   const withdrawalsRaw = await loadDayWithdrawals(dk);
   const sales = Array.isArray(salesRaw) ? salesRaw : [];
   const withdrawals = Array.isArray(withdrawalsRaw) ? withdrawalsRaw : [];
   return Object.assign({sales, withdrawals}, calculateFinancialSummary(sales, withdrawals));
 }
+async function getTodayCashSummary(){
+  return getCashSummaryForDate(todayKey());
+}
+
+/* Selected date for the "Dashboard do caixa" card (defaults to today) */
+let caixaDashboardDateKey = todayKey();
 
 async function refreshRegisterDisplay(){
   const summary = await getTodayCashSummary();
@@ -1509,7 +1523,13 @@ async function refreshRegisterDisplay(){
 }
 
 async function refreshCaixaSummary(){
-  const summary = await getTodayCashSummary();
+  const summary = await getCashSummaryForDate(caixaDashboardDateKey);
+  const titleEl = document.getElementById('caixaDashboardTitle');
+  if(titleEl){
+    titleEl.textContent = caixaDashboardDateKey === todayKey()
+      ? 'Dashboard do caixa de hoje'
+      : 'Dashboard do caixa — ' + displayDateBR(caixaDashboardDateKey);
+  }
   const setText = (id, value)=>{ const el=document.getElementById(id); if(el) el.textContent=value; };
   setText('caixaTotalVendido', fmt(summary.totalEntrada));
   setText('caixaQtdVendas', summary.sales.length + (summary.sales.length===1?' venda':' vendas'));
@@ -1531,7 +1551,7 @@ async function refreshCaixaSummary(){
 }
 
 async function openCaixaDetailModal(kind){
-  const summary = await getTodayCashSummary();
+  const summary = await getCashSummaryForDate(caixaDashboardDateKey);
   const sales = summary.sales.filter(s=>!s.canceled);
   const withdrawals = summary.withdrawals.filter(w=>!w.canceled);
 
@@ -1557,17 +1577,20 @@ async function openCaixaDetailModal(kind){
 
   let title = '';
   let bodyHtml = '';
+  const isToday = caixaDashboardDateKey === todayKey();
+  const dayWord = isToday ? 'hoje' : ('em ' + displayDateBR(caixaDashboardDateKey));
+  const dayTitleSuffix = isToday ? 'hoje' : displayDateBR(caixaDashboardDateKey);
 
   if(kind==='entrada'){
-    title = 'Total que entrou hoje';
+    title = 'Total que entrou — ' + dayTitleSuffix;
     bodyHtml = `<p class="helper-text" style="margin-top:-8px;">${sales.length} ${sales.length===1?'venda':'vendas'} · Total ${fmt(summary.totalEntrada)}</p>`
-      + table(sales.map(s=>saleRow(s)).join(''), 'Nenhuma venda registrada hoje.', 'Cliente');
+      + table(sales.map(s=>saleRow(s)).join(''), 'Nenhuma venda registrada ' + dayWord + '.', 'Cliente');
   } else if(kind==='saida'){
-    title = 'Total que saiu hoje';
+    title = 'Total que saiu — ' + dayTitleSuffix;
     bodyHtml = `<p class="helper-text" style="margin-top:-8px;">${withdrawals.length} ${withdrawals.length===1?'retirada':'retiradas'} · Total ${fmt(summary.totalSaida)}</p>`
-      + table(withdrawals.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada registrada hoje.', 'Descrição');
+      + table(withdrawals.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada registrada ' + dayWord + '.', 'Descrição');
   } else if(kind==='saldoGeral'){
-    title = 'Saldo geral do dia';
+    title = 'Saldo geral — ' + dayTitleSuffix;
     bodyHtml = `
       <table class="caixa-close-table" style="margin-top:0;">
         <tbody>
@@ -1579,15 +1602,15 @@ async function openCaixaDetailModal(kind){
   } else {
     const methodMap = {dinheiro:'Dinheiro', pix:'Pix', debito:'Débito', credito:'Crédito'};
     const method = methodMap[kind] || 'Dinheiro';
-    title = 'Saldo ' + method;
+    title = 'Saldo ' + method + ' — ' + dayTitleSuffix;
     const salesForMethod = sales.filter(s=>getPaymentAmount(s, method) > 0);
     const withdrawalsForMethod = withdrawals.filter(w=>getWithdrawalPayment(w)===method);
     bodyHtml = `
       <p class="helper-text" style="margin-top:-8px;">Entrou ${fmt(summary.byIn[method]||0)} · Saiu ${fmt(summary.byOut[method]||0)} · Saldo ${fmt(summary.byBalance[method]||0)}</p>
       <h4 style="margin:14px 0 6px;">Entradas em ${method}</h4>
-      ${table(salesForMethod.map(s=>saleRow(s, getPaymentAmount(s, method))).join(''), 'Nenhuma venda em ' + method + ' hoje.', 'Cliente')}
+      ${table(salesForMethod.map(s=>saleRow(s, getPaymentAmount(s, method))).join(''), 'Nenhuma venda em ' + method + ' ' + dayWord + '.', 'Cliente')}
       <h4 style="margin:14px 0 6px;">Saídas em ${method}</h4>
-      ${table(withdrawalsForMethod.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada em ' + method + ' hoje.', 'Descrição')}
+      ${table(withdrawalsForMethod.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada em ' + method + ' ' + dayWord + '.', 'Descrição')}
     `;
   }
 
@@ -1614,6 +1637,22 @@ if(caixaStatGridEl){
     const card = e.target.closest('[data-caixa-detail]');
     if(!card) return;
     openCaixaDetailModal(card.dataset.caixaDetail);
+  });
+}
+const caixaDashboardDateEl = document.getElementById('caixaDashboardDate');
+if(caixaDashboardDateEl){
+  caixaDashboardDateEl.value = caixaDashboardDateKey;
+  caixaDashboardDateEl.addEventListener('change', ()=>{
+    caixaDashboardDateKey = caixaDashboardDateEl.value || todayKey();
+    refreshCaixaSummary();
+  });
+}
+const caixaDashboardTodayBtn = document.getElementById('caixaDashboardTodayBtn');
+if(caixaDashboardTodayBtn){
+  caixaDashboardTodayBtn.addEventListener('click', ()=>{
+    caixaDashboardDateKey = todayKey();
+    if(caixaDashboardDateEl) caixaDashboardDateEl.value = caixaDashboardDateKey;
+    refreshCaixaSummary();
   });
 }
 
