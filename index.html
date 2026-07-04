@@ -170,7 +170,8 @@
   .diff-neg{color:var(--danger);font-weight:700;}
   .diff-zero{color:var(--ink-soft);font-weight:700;}
   .caixa-history-list{display:flex;flex-direction:column;gap:10px;}
-  .caixa-history-card{border:1px solid var(--line, #e7e7e7);border-radius:12px;padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;}
+  .caixa-history-card{border:1px solid var(--line, #e7e7e7);border-radius:12px;padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;cursor:pointer;transition:box-shadow .15s,border-color .15s;text-align:left;background:none;font-family:inherit;width:100%;}
+  .caixa-history-card:hover,.caixa-history-card:focus-visible{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);outline:none;}
   .caixa-history-date{font-weight:700;font-size:14.5px;min-width:150px;}
   .caixa-history-times{font-size:12.5px;color:var(--ink-soft);display:flex;flex-direction:column;gap:2px;}
   .caixa-history-result{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;}
@@ -1747,6 +1748,91 @@ async function getSessionCashSummary(session){
   return Object.assign({sales, withdrawals, expected}, fin);
 }
 
+/* ---------- Movimentação de uma sessão específica do histórico ----------
+   Diferente de getSessionCashSummary (que olha "da abertura até agora", pensado
+   para o caixa aberto no momento), aqui delimitamos também pelo fechamento —
+   já que é uma sessão passada — para não misturar com vendas/retiradas de
+   sessões seguintes no mesmo dia. */
+function cashSessionDateKeysFull(session){
+  const keys = new Set();
+  if(session.date) keys.add(session.date);
+  const openedDate = parseFlexibleDate(session.openedAt);
+  if(openedDate) keys.add(todayKey(openedDate));
+  const closedDate = parseFlexibleDate(session.closedAt);
+  if(closedDate) keys.add(todayKey(closedDate));
+  if(!keys.size) keys.add(todayKey());
+  return Array.from(keys);
+}
+
+async function getSessionMovementSummary(session){
+  const dateKeys = cashSessionDateKeysFull(session);
+  let sales = [];
+  let withdrawals = [];
+  for(const dk of dateKeys){
+    const s = await loadDaySales(dk);
+    const w = await loadDayWithdrawals(dk);
+    sales = sales.concat(Array.isArray(s) ? s : []);
+    withdrawals = withdrawals.concat(Array.isArray(w) ? w : []);
+  }
+  const lower = session.openedAt || '';
+  const upper = session.status === 'fechado' ? (session.closedAt || '') : '';
+  const inRange = (t) => {
+    const v = String(t || '');
+    if(lower && v < lower) return false;
+    if(upper && v > upper) return false;
+    return true;
+  };
+  sales = sales.filter(s => inRange(s.updatedAt));
+  withdrawals = withdrawals.filter(w => inRange(w.updatedAt));
+  return Object.assign({sales, withdrawals}, calculateFinancialSummary(sales, withdrawals));
+}
+
+async function openCaixaSessionMovementModal(session){
+  if(!session){ showToast('Sessão não encontrada.'); return; }
+  const summary = await getSessionMovementSummary(session);
+  const isFechado = session.status === 'fechado';
+  const statusBadge = isFechado
+    ? '<span class="badge badge-closed">Fechado</span>'
+    : '<span class="badge badge-open">Aberto</span>';
+  const periodo = isFechado
+    ? `${escapeHtml(formatTimeBRShort(session.openedAt))} – ${escapeHtml(formatTimeBRShort(session.closedAt))}`
+    : `${escapeHtml(formatTimeBRShort(session.openedAt))} – em andamento`;
+  const activeSales = summary.sales.filter(s => !s.canceled);
+  const activeWithdrawals = summary.withdrawals.filter(w => !w.canceled);
+  const methodRow = (method) => `<tr><td>${escapeHtml(method)}</td><td class="num">${fmt(summary.byIn[method]||0)}</td><td class="num">${fmt(summary.byOut[method]||0)}</td></tr>`;
+  const bodyHtml = `
+    <p class="helper-text" style="margin-top:-8px;">${activeSales.length} ${activeSales.length===1?'venda':'vendas'} · ${activeWithdrawals.length} ${activeWithdrawals.length===1?'retirada':'retiradas'}</p>
+    <table class="caixa-close-table" style="margin-top:0;">
+      <thead><tr><th>Forma</th><th>Entrou</th><th>Saiu</th></tr></thead>
+      <tbody>
+        ${PAYMENT_METHODS.map(methodRow).join('')}
+        <tr class="caixa-close-total-row"><td>Total</td><td class="num">${fmt(summary.totalEntrada)}</td><td class="num">${fmt(summary.totalSaida)}</td></tr>
+      </tbody>
+    </table>
+    <table class="caixa-close-table" style="margin-top:10px;">
+      <tbody>
+        <tr class="caixa-close-total-row"><td>Saldo geral do dia</td><td class="num">${fmt(summary.saldoGeral)}</td></tr>
+      </tbody>
+    </table>`;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal caixa-detail-modal">
+      <h3 style="margin-top:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">${escapeHtml(formatDateBRFull(session.date))} ${statusBadge}</h3>
+      <p class="helper-text" style="margin-top:-6px;">${periodo}</p>
+      ${bodyHtml}
+      <div style="display:flex; justify-content:flex-end; margin-top:16px;">
+        <button type="button" class="btn btn-ghost" id="caixaSessionMovementClose">Fechar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=>{ overlay.remove(); document.removeEventListener('keydown', escHandler); };
+  function escHandler(e){ if(e.key==='Escape') close(); }
+  overlay.querySelector('#caixaSessionMovementClose').addEventListener('click', close);
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) close(); });
+  document.addEventListener('keydown', escHandler);
+}
+
 async function openCashSession(openingAmount, notes){
   const existing = await getOpenCashSession();
   if(existing){ showToast('Já existe um caixa aberto'); return null; }
@@ -1830,6 +1916,8 @@ function cashSessionCanonicalDate(s){
   return d ? todayKey(d) : '';
 }
 
+let caixaHistorySessionsById = {};
+
 async function renderCaixaHistory(){
   const list = document.getElementById('caixaHistoryList');
   const empty = document.getElementById('caixaHistoryEmpty');
@@ -1851,6 +1939,9 @@ async function renderCaixaHistory(){
       ? `Mostrando ${rows.length} sessão(ões) de ${formatDateBRFull(caixaHistoryFilterDate)}.`
       : `Mostrando as ${rows.length} sessões mais recentes. Use o filtro para ver um dia específico.`;
   }
+
+  caixaHistorySessionsById = {};
+  rows.forEach(s => { if(s.id) caixaHistorySessionsById[String(s.id)] = s; });
 
   if(!rows.length){
     list.innerHTML = '';
@@ -1876,7 +1967,8 @@ async function renderCaixaHistory(){
         <div><span>Contado</span><b>${fmt(totalContado)}</b></div>
         <div><span>Diferença</span><b class="${diffClass(diffTotal)}">${fmt(diffTotal)}</b></div>
       </div>` : '';
-    return `<div class="caixa-history-card">
+    const sessionIdAttr = s.id ? escapeHtml(String(s.id)) : '';
+    return `<div class="caixa-history-card" ${sessionIdAttr ? `data-session-id="${sessionIdAttr}" tabindex="0" role="button" aria-label="Ver movimento do dia"` : ''}>
       <div>
         <div class="caixa-history-date">${escapeHtml(formatDateBRFull(s.date))}</div>
         <div class="caixa-history-times">
@@ -1888,6 +1980,26 @@ async function renderCaixaHistory(){
       ${statusBadge}
     </div>`;
   }).join('');
+}
+
+const caixaHistoryListEl = document.getElementById('caixaHistoryList');
+if(caixaHistoryListEl){
+  caixaHistoryListEl.addEventListener('click', (e)=>{
+    const card = e.target.closest('[data-session-id]');
+    if(!card) return;
+    const session = caixaHistorySessionsById[card.dataset.sessionId];
+    if(!session){ showToast('Sessão não encontrada. Atualize a lista e tente de novo.'); return; }
+    openCaixaSessionMovementModal(session);
+  });
+  caixaHistoryListEl.addEventListener('keydown', (e)=>{
+    if(e.key !== 'Enter' && e.key !== ' ') return;
+    const card = e.target.closest('[data-session-id]');
+    if(!card) return;
+    e.preventDefault();
+    const session = caixaHistorySessionsById[card.dataset.sessionId];
+    if(!session){ showToast('Sessão não encontrada. Atualize a lista e tente de novo.'); return; }
+    openCaixaSessionMovementModal(session);
+  });
 }
 
 /* ---------- Filtro apenas visual de sessões repetidas (não altera nada salvo) ----------
