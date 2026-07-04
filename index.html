@@ -5304,6 +5304,52 @@ document.getElementById('importBackupFileInput').addEventListener('change', asyn
 installEnterFlow(document.getElementById('view-relatorios'), ['repStart','repEnd'], ()=>document.getElementById('runReportBtn').click());
 installEnterFlow(document.getElementById('view-backup'), ['backupUrl'], ()=>document.getElementById('saveBackupUrlBtn').click());
 
+/* ---------- Recálculo único do "esperado" de caixas já fechados ----------
+   Sessões fechadas ANTES da correção do bug em getSessionCashSummary (que
+   comparava updatedAt como texto puro, em vez da data/hora real da venda/
+   retirada) ficaram com "expected" e, por consequência, "diff"/"diffTotal"
+   gravados errados. Esta rotina roda uma única vez (marcador
+   CAIXA_EXPECTED_RECALC_FLAG), percorre todas as sessões já fechadas e
+   recalcula expected/diff/diffTotal com a lógica corrigida, usando o
+   "counted" (contagem real feita no fechamento, que não muda) já gravado.
+   Sessões abertas não são tocadas. */
+const CAIXA_EXPECTED_RECALC_FLAG = 'caixaExpectedRecalcV1';
+
+async function recalcClosedCashSessionsExpected(){
+  try{
+    const already = await storageGet(CAIXA_EXPECTED_RECALC_FLAG);
+    if(already) return;
+
+    const keys = await storageListKeys('caixaSessions:');
+    for(const k of keys){
+      const dk = k.slice('caixaSessions:'.length);
+      const arr = await loadDayCashSessions(dk);
+      if(!Array.isArray(arr) || !arr.length) continue;
+      let changed = false;
+      for(let i=0; i<arr.length; i++){
+        const session = arr[i];
+        if(!session || session.status !== 'fechado') continue;
+        const summary = await getSessionCashSummary(session);
+        const newExpected = {};
+        const newDiff = {};
+        PAYMENT_METHODS.forEach(m => {
+          newExpected[m] = roundMoney(summary.expected[m] || 0);
+          const counted = roundMoney(Number((session.counted || {})[m]) || 0);
+          newDiff[m] = roundMoney(counted - newExpected[m]);
+        });
+        const newDiffTotal = roundMoney(Object.values(newDiff).reduce((a, n) => a + n, 0));
+        arr[i] = Object.assign({}, session, { expected: newExpected, diff: newDiff, diffTotal: newDiffTotal });
+        changed = true;
+      }
+      if(changed) await saveDayCashSessions(dk, arr);
+    }
+
+    await storageSet(CAIXA_EXPECTED_RECALC_FLAG, true);
+  }catch(e){
+    // Qualquer erro aqui não deve travar o app nem arriscar os dados: só não recalcula agora.
+  }
+}
+
 /* ---------- Init ---------- */
 async function init(){
   await loadBranding();
@@ -5315,6 +5361,7 @@ async function init(){
   await consolidateSalesStorage();
   await consolidateWithdrawalsStorage();
   await consolidateCashSessionsStorage();
+  await recalcClosedCashSessionsExpected();
   renderProductGrid();
   renderCart();
   await refreshRegisterDisplay();
