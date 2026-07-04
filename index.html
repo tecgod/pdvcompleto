@@ -170,7 +170,8 @@
   .diff-neg{color:var(--danger);font-weight:700;}
   .diff-zero{color:var(--ink-soft);font-weight:700;}
   .caixa-history-list{display:flex;flex-direction:column;gap:10px;}
-  .caixa-history-card{border:1px solid var(--line, #e7e7e7);border-radius:12px;padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;}
+  .caixa-history-card{border:1px solid var(--line, #e7e7e7);border-radius:12px;padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;cursor:pointer;transition:box-shadow .15s,border-color .15s;text-align:left;background:none;font-family:inherit;width:100%;}
+  .caixa-history-card:hover,.caixa-history-card:focus-visible{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);outline:none;}
   .caixa-history-date{font-weight:700;font-size:14.5px;min-width:150px;}
   .caixa-history-times{font-size:12.5px;color:var(--ink-soft);display:flex;flex-direction:column;gap:2px;}
   .caixa-history-result{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;}
@@ -511,15 +512,7 @@
           </div>
         </div>
         <div class="card card-pad" style="margin-bottom:20px;">
-          <div class="section-title" style="flex-wrap:wrap; gap:10px;">
-            <h2 id="caixaDashboardTitle">Dashboard do caixa de hoje</h2>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div class="field" style="min-width:170px; margin:0;">
-                <input type="date" id="caixaDashboardDate">
-              </div>
-              <button type="button" class="btn btn-ghost btn-sm" id="caixaDashboardTodayBtn">Hoje</button>
-            </div>
-          </div>
+          <div class="section-title"><h2>Dashboard do caixa de hoje</h2></div>
           <div class="caixa-stat-grid" id="caixaStatGrid">
             <button type="button" class="stat-card" data-caixa-detail="entrada"><div class="s-label">Total entrou hoje</div><div class="s-value" id="caixaTotalVendido">R$ 0,00</div><div class="s-sub" id="caixaQtdVendas">0 vendas</div></button>
             <button type="button" class="stat-card" data-caixa-detail="saida"><div class="s-label">Total saiu hoje</div><div class="s-value" id="caixaRetiradas">R$ 0,00</div><div class="s-sub" id="caixaQtdRetiradas">0 retiradas</div></button>
@@ -1050,6 +1043,14 @@ async function storageListKeys(prefix){
   }catch(e){}
   return Array.from(keys);
 }
+async function storageDeleteKey(key){
+  try{
+    if(storageHasCloud() && typeof window.storage.delete === 'function'){
+      await window.storage.delete(key, true);
+    }
+  }catch(e){}
+  try{ localStorage.removeItem(LOCAL_STORAGE_PREFIX + key); }catch(e){}
+}
 
 
 
@@ -1126,6 +1127,170 @@ async function saveImportedCashSession(session){
   }
   return false;
 }
+
+/* ---------- Limpeza definitiva de duplicidade no histórico de caixa ----------
+   Em sincronizações antigas, a mesma sessão de abertura/fechamento podia acabar
+   gravada em mais de uma "gaveta" (chave) de armazenamento — por isso o histórico
+   mostrava a sessão repetida. Esta rotina roda uma única vez (marcador
+   CAIXA_CLEANUP_FLAG), reúne todas as sessões de todas as chaves, remove as
+   repetições e regrava cada sessão na chave certa (a data em que ela realmente
+   aconteceu). Nenhuma sessão real é apagada — apenas as cópias repetidas e as
+   chaves "sujas" que sobraram de versões antigas. */
+const CAIXA_CLEANUP_FLAG = 'caixaSessionsCleanupV1';
+
+function betterCashSessionRecord(a, b){
+  // Entre duas cópias da mesma sessão (mesmo id), fica com a mais completa/recente.
+  const statusScore = s => (s && s.status === 'fechado') ? 1 : 0;
+  const sa = statusScore(a), sb = statusScore(b);
+  if(sb !== sa) return sb > sa ? b : a;
+  const ta = String((a && a.updatedAt) || '');
+  const tb = String((b && b.updatedAt) || '');
+  return tb > ta ? b : a;
+}
+
+async function consolidateCashSessionsStorage(){
+  try{
+    const already = await storageGet(CAIXA_CLEANUP_FLAG);
+    if(already) return;
+
+    const keys = await storageListKeys('caixaSessions:');
+    if(!keys.length){ await storageSet(CAIXA_CLEANUP_FLAG, true); return; }
+
+    const byId = new Map();
+    const noId = [];
+    for(const k of keys){
+      const arr = await storageGet(k);
+      if(!Array.isArray(arr)) continue;
+      arr.forEach(s=>{
+        if(!s) return;
+        if(s.id){
+          const key = String(s.id);
+          const current = byId.get(key);
+          byId.set(key, current ? betterCashSessionRecord(current, s) : s);
+        } else {
+          noId.push(s);
+        }
+      });
+    }
+
+    // Sessões antigas sem id (de antes desse campo existir): dedupe por conteúdo.
+    const seenSig = new Set();
+    const cleanedNoId = [];
+    noId.forEach(s=>{
+      const sig = sessionDedupeSignature(s) + '|' + cashSessionCanonicalDate(s);
+      if(seenSig.has(sig)) return;
+      seenSig.add(sig);
+      cleanedNoId.push(s);
+    });
+
+    const finalSessions = Array.from(byId.values()).concat(cleanedNoId);
+
+    // Reagrupa cada sessão na data em que ela de fato aconteceu.
+    const byDate = {};
+    finalSessions.forEach(s=>{
+      const dk = cashSessionCanonicalDate(s) || s.date || todayKey();
+      if(!byDate[dk]) byDate[dk] = [];
+      byDate[dk].push(s);
+    });
+    Object.keys(byDate).forEach(dk=>{
+      byDate[dk].sort((a,b)=>cashSessionSortTime(a)-cashSessionSortTime(b));
+    });
+
+    for(const dk of Object.keys(byDate)){
+      await saveDayCashSessions(dk, byDate[dk]);
+    }
+
+    // Remove só as chaves que não são mais necessárias (as "sujas"/repetidas).
+    const validKeys = new Set(Object.keys(byDate).map(dk => 'caixaSessions:' + dk));
+    for(const k of keys){
+      if(!validKeys.has(k)) await storageDeleteKey(k);
+    }
+
+    await storageSet(CAIXA_CLEANUP_FLAG, true);
+  }catch(e){
+    // Qualquer erro aqui não deve travar o app nem arriscar os dados: só não limpa agora.
+  }
+}
+
+/* ---------- Limpeza definitiva de duplicidade em vendas e retiradas ----------
+   O mesmo problema das sessões de caixa (registro gravado em mais de uma
+   "gaveta" de armazenamento por causa de sincronizações antigas) também pode
+   acontecer com vendas e retiradas, já que usam o mesmo mecanismo de chaves
+   por data. Isso inflava os totais de "entrou"/"saiu" nos relatórios. Aqui
+   fazemos a mesma consolidação seguindo o mesmo princípio: uma única vez,
+   agrupa por id (mantendo a versão mais recente/mais completa), regrava cada
+   registro na data certa e remove só as chaves duplicadas. Nenhuma venda ou
+   retirada real é apagada. */
+function betterFlatRecord(a, b){
+  // Entre duas cópias do mesmo registro (mesmo id), prioriza o estado mais
+  // avançado (cancelado prevalece sobre não cancelado) e, em empate, o mais recente.
+  const ca = (a && a.canceled) ? 1 : 0;
+  const cb = (b && b.canceled) ? 1 : 0;
+  if(cb !== ca) return cb > ca ? b : a;
+  const ta = String((a && a.updatedAt) || '');
+  const tb = String((b && b.updatedAt) || '');
+  return tb > ta ? b : a;
+}
+function canonicalRecordDate(o){
+  const d = parseFlexibleDate(o && o.date);
+  return d ? todayKey(d) : (o && o.date) || todayKey();
+}
+async function consolidateFlatStorage(prefix, flagKey, saveFn){
+  try{
+    const already = await storageGet(flagKey);
+    if(already) return;
+
+    const keys = await storageListKeys(prefix);
+    if(!keys.length){ await storageSet(flagKey, true); return; }
+
+    const byId = new Map();
+    const noId = [];
+    for(const k of keys){
+      const arr = await storageGet(k);
+      if(!Array.isArray(arr)) continue;
+      arr.forEach(o=>{
+        if(!o) return;
+        if(o.id){
+          const key = String(o.id);
+          const current = byId.get(key);
+          byId.set(key, current ? betterFlatRecord(current, o) : o);
+        } else {
+          noId.push(o);
+        }
+      });
+    }
+
+    const finalRecords = Array.from(byId.values()).concat(noId);
+
+    const byDate = {};
+    finalRecords.forEach(o=>{
+      const dk = canonicalRecordDate(o);
+      if(!byDate[dk]) byDate[dk] = [];
+      byDate[dk].push(o);
+    });
+
+    for(const dk of Object.keys(byDate)){
+      await saveFn(dk, byDate[dk]);
+    }
+
+    // Remove só as chaves que não são mais necessárias (as "sujas"/repetidas).
+    const validKeys = new Set(Object.keys(byDate).map(dk => prefix + dk));
+    for(const k of keys){
+      if(!validKeys.has(k)) await storageDeleteKey(k);
+    }
+
+    await storageSet(flagKey, true);
+  }catch(e){
+    // Qualquer erro aqui não deve travar o app nem arriscar os dados: só não limpa agora.
+  }
+}
+async function consolidateSalesStorage(){
+  await consolidateFlatStorage('sales:', 'salesCleanupV1', saveDaySales);
+}
+async function consolidateWithdrawalsStorage(){
+  await consolidateFlatStorage('withdrawals:', 'withdrawalsCleanupV1', saveDayWithdrawals);
+}
+
 async function saveImportedSale(sale){
   if(!sale || !sale.id) return false;
   const dk = sale.date || todayKey();
@@ -1500,20 +1665,14 @@ function goToView(view){
 }
 
 /* ---------- Register display (top bar) ---------- */
-async function getCashSummaryForDate(dateKey){
-  const dk = dateKey || todayKey();
+async function getTodayCashSummary(){
+  const dk = todayKey();
   const salesRaw = await loadDaySales(dk);
   const withdrawalsRaw = await loadDayWithdrawals(dk);
   const sales = Array.isArray(salesRaw) ? salesRaw : [];
   const withdrawals = Array.isArray(withdrawalsRaw) ? withdrawalsRaw : [];
   return Object.assign({sales, withdrawals}, calculateFinancialSummary(sales, withdrawals));
 }
-async function getTodayCashSummary(){
-  return getCashSummaryForDate(todayKey());
-}
-
-/* Selected date for the "Dashboard do caixa" card (defaults to today) */
-let caixaDashboardDateKey = todayKey();
 
 async function refreshRegisterDisplay(){
   const summary = await getTodayCashSummary();
@@ -1523,13 +1682,7 @@ async function refreshRegisterDisplay(){
 }
 
 async function refreshCaixaSummary(){
-  const summary = await getCashSummaryForDate(caixaDashboardDateKey);
-  const titleEl = document.getElementById('caixaDashboardTitle');
-  if(titleEl){
-    titleEl.textContent = caixaDashboardDateKey === todayKey()
-      ? 'Dashboard do caixa de hoje'
-      : 'Dashboard do caixa — ' + displayDateBR(caixaDashboardDateKey);
-  }
+  const summary = await getTodayCashSummary();
   const setText = (id, value)=>{ const el=document.getElementById(id); if(el) el.textContent=value; };
   setText('caixaTotalVendido', fmt(summary.totalEntrada));
   setText('caixaQtdVendas', summary.sales.length + (summary.sales.length===1?' venda':' vendas'));
@@ -1551,7 +1704,7 @@ async function refreshCaixaSummary(){
 }
 
 async function openCaixaDetailModal(kind){
-  const summary = await getCashSummaryForDate(caixaDashboardDateKey);
+  const summary = await getTodayCashSummary();
   const sales = summary.sales.filter(s=>!s.canceled);
   const withdrawals = summary.withdrawals.filter(w=>!w.canceled);
 
@@ -1577,20 +1730,17 @@ async function openCaixaDetailModal(kind){
 
   let title = '';
   let bodyHtml = '';
-  const isToday = caixaDashboardDateKey === todayKey();
-  const dayWord = isToday ? 'hoje' : ('em ' + displayDateBR(caixaDashboardDateKey));
-  const dayTitleSuffix = isToday ? 'hoje' : displayDateBR(caixaDashboardDateKey);
 
   if(kind==='entrada'){
-    title = 'Total que entrou — ' + dayTitleSuffix;
+    title = 'Total que entrou hoje';
     bodyHtml = `<p class="helper-text" style="margin-top:-8px;">${sales.length} ${sales.length===1?'venda':'vendas'} · Total ${fmt(summary.totalEntrada)}</p>`
-      + table(sales.map(s=>saleRow(s)).join(''), 'Nenhuma venda registrada ' + dayWord + '.', 'Cliente');
+      + table(sales.map(s=>saleRow(s)).join(''), 'Nenhuma venda registrada hoje.', 'Cliente');
   } else if(kind==='saida'){
-    title = 'Total que saiu — ' + dayTitleSuffix;
+    title = 'Total que saiu hoje';
     bodyHtml = `<p class="helper-text" style="margin-top:-8px;">${withdrawals.length} ${withdrawals.length===1?'retirada':'retiradas'} · Total ${fmt(summary.totalSaida)}</p>`
-      + table(withdrawals.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada registrada ' + dayWord + '.', 'Descrição');
+      + table(withdrawals.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada registrada hoje.', 'Descrição');
   } else if(kind==='saldoGeral'){
-    title = 'Saldo geral — ' + dayTitleSuffix;
+    title = 'Saldo geral do dia';
     bodyHtml = `
       <table class="caixa-close-table" style="margin-top:0;">
         <tbody>
@@ -1602,15 +1752,15 @@ async function openCaixaDetailModal(kind){
   } else {
     const methodMap = {dinheiro:'Dinheiro', pix:'Pix', debito:'Débito', credito:'Crédito'};
     const method = methodMap[kind] || 'Dinheiro';
-    title = 'Saldo ' + method + ' — ' + dayTitleSuffix;
+    title = 'Saldo ' + method;
     const salesForMethod = sales.filter(s=>getPaymentAmount(s, method) > 0);
     const withdrawalsForMethod = withdrawals.filter(w=>getWithdrawalPayment(w)===method);
     bodyHtml = `
       <p class="helper-text" style="margin-top:-8px;">Entrou ${fmt(summary.byIn[method]||0)} · Saiu ${fmt(summary.byOut[method]||0)} · Saldo ${fmt(summary.byBalance[method]||0)}</p>
       <h4 style="margin:14px 0 6px;">Entradas em ${method}</h4>
-      ${table(salesForMethod.map(s=>saleRow(s, getPaymentAmount(s, method))).join(''), 'Nenhuma venda em ' + method + ' ' + dayWord + '.', 'Cliente')}
+      ${table(salesForMethod.map(s=>saleRow(s, getPaymentAmount(s, method))).join(''), 'Nenhuma venda em ' + method + ' hoje.', 'Cliente')}
       <h4 style="margin:14px 0 6px;">Saídas em ${method}</h4>
-      ${table(withdrawalsForMethod.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada em ' + method + ' ' + dayWord + '.', 'Descrição')}
+      ${table(withdrawalsForMethod.map(w=>withdrawalRow(w)).join(''), 'Nenhuma retirada em ' + method + ' hoje.', 'Descrição')}
     `;
   }
 
@@ -1637,22 +1787,6 @@ if(caixaStatGridEl){
     const card = e.target.closest('[data-caixa-detail]');
     if(!card) return;
     openCaixaDetailModal(card.dataset.caixaDetail);
-  });
-}
-const caixaDashboardDateEl = document.getElementById('caixaDashboardDate');
-if(caixaDashboardDateEl){
-  caixaDashboardDateEl.value = caixaDashboardDateKey;
-  caixaDashboardDateEl.addEventListener('change', ()=>{
-    caixaDashboardDateKey = caixaDashboardDateEl.value || todayKey();
-    refreshCaixaSummary();
-  });
-}
-const caixaDashboardTodayBtn = document.getElementById('caixaDashboardTodayBtn');
-if(caixaDashboardTodayBtn){
-  caixaDashboardTodayBtn.addEventListener('click', ()=>{
-    caixaDashboardDateKey = todayKey();
-    if(caixaDashboardDateEl) caixaDashboardDateEl.value = caixaDashboardDateKey;
-    refreshCaixaSummary();
   });
 }
 
@@ -1692,6 +1826,95 @@ async function getSessionCashSummary(session){
   PAYMENT_METHODS.forEach(m => { expected[m] = roundMoney(fin.byBalance[m] || 0); });
   expected['Dinheiro'] = roundMoney((Number(session.openingAmount) || 0) + (fin.byBalance['Dinheiro'] || 0));
   return Object.assign({sales, withdrawals, expected}, fin);
+}
+
+/* ---------- Movimentação de uma sessão específica do histórico ----------
+   Diferente de getSessionCashSummary (que olha "da abertura até agora", pensado
+   para o caixa aberto no momento), aqui delimitamos também pelo fechamento —
+   já que é uma sessão passada — para não misturar com vendas/retiradas de
+   sessões seguintes no mesmo dia. */
+function cashSessionDateKeysFull(session){
+  const keys = new Set();
+  if(session.date) keys.add(session.date);
+  const openedDate = parseFlexibleDate(session.openedAt);
+  if(openedDate) keys.add(todayKey(openedDate));
+  const closedDate = parseFlexibleDate(session.closedAt);
+  if(closedDate) keys.add(todayKey(closedDate));
+  if(!keys.size) keys.add(todayKey());
+  return Array.from(keys);
+}
+
+async function getSessionMovementSummary(session){
+  const dateKeys = cashSessionDateKeysFull(session);
+  let sales = [];
+  let withdrawals = [];
+  for(const dk of dateKeys){
+    const s = await loadDaySales(dk);
+    const w = await loadDayWithdrawals(dk);
+    sales = sales.concat(Array.isArray(s) ? s : []);
+    withdrawals = withdrawals.concat(Array.isArray(w) ? w : []);
+  }
+  const lower = session.openedAt || '';
+  const upper = session.status === 'fechado' ? (session.closedAt || '') : '';
+  // Importante: usamos data+hora do registro (gravados uma única vez, na hora da venda/retirada)
+  // e não "updatedAt" — porque updatedAt muda depois (ex: editar cliente ou cancelar a venda),
+  // o que faria uma venda de ontem "sumir" da sessão de ontem se fosse mexida hoje.
+  const eventStamp = (o) => `${String(o.date || '')} ${String(o.time || '00:00')}:00`;
+  const inRange = (o) => {
+    const v = eventStamp(o);
+    if(lower && v < lower) return false;
+    if(upper && v > upper) return false;
+    return true;
+  };
+  sales = sales.filter(s => inRange(s));
+  withdrawals = withdrawals.filter(w => inRange(w));
+  return Object.assign({sales, withdrawals}, calculateFinancialSummary(sales, withdrawals));
+}
+
+async function openCaixaSessionMovementModal(session){
+  if(!session){ showToast('Sessão não encontrada.'); return; }
+  const summary = await getSessionMovementSummary(session);
+  const isFechado = session.status === 'fechado';
+  const statusBadge = isFechado
+    ? '<span class="badge badge-closed">Fechado</span>'
+    : '<span class="badge badge-open">Aberto</span>';
+  const periodo = isFechado
+    ? `${escapeHtml(formatTimeBRShort(session.openedAt))} – ${escapeHtml(formatTimeBRShort(session.closedAt))}`
+    : `${escapeHtml(formatTimeBRShort(session.openedAt))} – em andamento`;
+  const activeSales = summary.sales.filter(s => !s.canceled);
+  const activeWithdrawals = summary.withdrawals.filter(w => !w.canceled);
+  const methodRow = (method) => `<tr><td>${escapeHtml(method)}</td><td class="num">${fmt(summary.byIn[method]||0)}</td><td class="num">${fmt(summary.byOut[method]||0)}</td></tr>`;
+  const bodyHtml = `
+    <p class="helper-text" style="margin-top:-8px;">${activeSales.length} ${activeSales.length===1?'venda':'vendas'} · ${activeWithdrawals.length} ${activeWithdrawals.length===1?'retirada':'retiradas'}</p>
+    <table class="caixa-close-table" style="margin-top:0;">
+      <thead><tr><th>Forma</th><th>Entrou</th><th>Saiu</th></tr></thead>
+      <tbody>
+        ${PAYMENT_METHODS.map(methodRow).join('')}
+        <tr class="caixa-close-total-row"><td>Total</td><td class="num">${fmt(summary.totalEntrada)}</td><td class="num">${fmt(summary.totalSaida)}</td></tr>
+      </tbody>
+    </table>
+    <table class="caixa-close-table" style="margin-top:10px;">
+      <tbody>
+        <tr class="caixa-close-total-row"><td>Saldo geral do dia</td><td class="num">${fmt(summary.saldoGeral)}</td></tr>
+      </tbody>
+    </table>`;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal caixa-detail-modal">
+      <h3 style="margin-top:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">${escapeHtml(formatDateBRFull(session.date))} ${statusBadge}</h3>
+      <p class="helper-text" style="margin-top:-6px;">${periodo}</p>
+      ${bodyHtml}
+      <div style="display:flex; justify-content:flex-end; margin-top:16px;">
+        <button type="button" class="btn btn-ghost" id="caixaSessionMovementClose">Fechar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=>{ overlay.remove(); document.removeEventListener('keydown', escHandler); };
+  function escHandler(e){ if(e.key==='Escape') close(); }
+  overlay.querySelector('#caixaSessionMovementClose').addEventListener('click', close);
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) close(); });
+  document.addEventListener('keydown', escHandler);
 }
 
 async function openCashSession(openingAmount, notes){
@@ -1777,6 +2000,8 @@ function cashSessionCanonicalDate(s){
   return d ? todayKey(d) : '';
 }
 
+let caixaHistorySessionsById = {};
+
 async function renderCaixaHistory(){
   const list = document.getElementById('caixaHistoryList');
   const empty = document.getElementById('caixaHistoryEmpty');
@@ -1798,6 +2023,9 @@ async function renderCaixaHistory(){
       ? `Mostrando ${rows.length} sessão(ões) de ${formatDateBRFull(caixaHistoryFilterDate)}.`
       : `Mostrando as ${rows.length} sessões mais recentes. Use o filtro para ver um dia específico.`;
   }
+
+  caixaHistorySessionsById = {};
+  rows.forEach(s => { if(s.id) caixaHistorySessionsById[String(s.id)] = s; });
 
   if(!rows.length){
     list.innerHTML = '';
@@ -1823,7 +2051,8 @@ async function renderCaixaHistory(){
         <div><span>Contado</span><b>${fmt(totalContado)}</b></div>
         <div><span>Diferença</span><b class="${diffClass(diffTotal)}">${fmt(diffTotal)}</b></div>
       </div>` : '';
-    return `<div class="caixa-history-card">
+    const sessionIdAttr = s.id ? escapeHtml(String(s.id)) : '';
+    return `<div class="caixa-history-card" ${sessionIdAttr ? `data-session-id="${sessionIdAttr}" tabindex="0" role="button" aria-label="Ver movimento do dia"` : ''}>
       <div>
         <div class="caixa-history-date">${escapeHtml(formatDateBRFull(s.date))}</div>
         <div class="caixa-history-times">
@@ -1835,6 +2064,26 @@ async function renderCaixaHistory(){
       ${statusBadge}
     </div>`;
   }).join('');
+}
+
+const caixaHistoryListEl = document.getElementById('caixaHistoryList');
+if(caixaHistoryListEl){
+  caixaHistoryListEl.addEventListener('click', (e)=>{
+    const card = e.target.closest('[data-session-id]');
+    if(!card) return;
+    const session = caixaHistorySessionsById[card.dataset.sessionId];
+    if(!session){ showToast('Sessão não encontrada. Atualize a lista e tente de novo.'); return; }
+    openCaixaSessionMovementModal(session);
+  });
+  caixaHistoryListEl.addEventListener('keydown', (e)=>{
+    if(e.key !== 'Enter' && e.key !== ' ') return;
+    const card = e.target.closest('[data-session-id]');
+    if(!card) return;
+    e.preventDefault();
+    const session = caixaHistorySessionsById[card.dataset.sessionId];
+    if(!session){ showToast('Sessão não encontrada. Atualize a lista e tente de novo.'); return; }
+    openCaixaSessionMovementModal(session);
+  });
 }
 
 /* ---------- Filtro apenas visual de sessões repetidas (não altera nada salvo) ----------
@@ -4940,6 +5189,9 @@ async function init(){
   await loadWithdrawalCategories();
   renderWithdrawalCategoryOptions(document.getElementById('wCategory'), '');
   setSyncStatus(navigator.onLine ? 'Sincroniza&ccedil;&atilde;o pronta' : 'Offline: vendas locais ativadas', navigator.onLine ? 'online' : 'offline');
+  await consolidateSalesStorage();
+  await consolidateWithdrawalsStorage();
+  await consolidateCashSessionsStorage();
   renderProductGrid();
   renderCart();
   await refreshRegisterDisplay();
