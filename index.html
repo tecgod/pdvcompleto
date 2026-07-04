@@ -1776,14 +1776,18 @@ async function getSessionMovementSummary(session){
   }
   const lower = session.openedAt || '';
   const upper = session.status === 'fechado' ? (session.closedAt || '') : '';
-  const inRange = (t) => {
-    const v = String(t || '');
+  // Importante: usamos data+hora do registro (gravados uma única vez, na hora da venda/retirada)
+  // e não "updatedAt" — porque updatedAt muda depois (ex: editar cliente ou cancelar a venda),
+  // o que faria uma venda de ontem "sumir" da sessão de ontem se fosse mexida hoje.
+  const eventStamp = (o) => `${String(o.date || '')} ${String(o.time || '00:00')}:00`;
+  const inRange = (o) => {
+    const v = eventStamp(o);
     if(lower && v < lower) return false;
     if(upper && v > upper) return false;
     return true;
   };
-  sales = sales.filter(s => inRange(s.updatedAt));
-  withdrawals = withdrawals.filter(w => inRange(w.updatedAt));
+  sales = sales.filter(s => inRange(s));
+  withdrawals = withdrawals.filter(w => inRange(w));
   return Object.assign({sales, withdrawals}, calculateFinancialSummary(sales, withdrawals));
 }
 
