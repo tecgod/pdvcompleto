@@ -169,6 +169,13 @@
   .diff-pos{color:var(--accent-dark);font-weight:700;}
   .diff-neg{color:var(--danger);font-weight:700;}
   .diff-zero{color:var(--ink-soft);font-weight:700;}
+  .caixa-history-list{display:flex;flex-direction:column;gap:10px;}
+  .caixa-history-card{border:1px solid var(--line, #e7e7e7);border-radius:12px;padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;}
+  .caixa-history-date{font-weight:700;font-size:14.5px;min-width:150px;}
+  .caixa-history-times{font-size:12.5px;color:var(--ink-soft);display:flex;flex-direction:column;gap:2px;}
+  .caixa-history-result{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;}
+  .caixa-history-result b{display:block;font-size:14px;}
+  .caixa-history-result span{color:var(--ink-soft);}
   .caixa-session-row{display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between;}
   .caixa-session-info{display:flex;flex-direction:column;gap:5px;}
   .caixa-session-info .csi-status{font-size:13px;}
@@ -569,13 +576,11 @@
         </div>
 
         <div class="card card-pad" style="margin-top:20px;">
-          <div class="section-title"><h2>Histórico de aberturas e fechamentos</h2></div>
-          <div class="report-table-wrap">
-            <table>
-              <thead><tr><th>Data</th><th>Abertura</th><th class="num">Valor abertura</th><th>Fechamento</th><th class="num">Dinheiro esperado</th><th class="num">Dinheiro contado</th><th class="num">Diferença total</th><th>Status</th></tr></thead>
-              <tbody id="caixaHistoryBody"></tbody>
-            </table>
+          <div class="section-title">
+            <h2>Histórico de aberturas e fechamentos</h2>
+            <button type="button" class="btn btn-ghost btn-sm" id="fixCaixaHistoryBtn">🧹 Corrigir duplicatas</button>
           </div>
+          <div id="caixaHistoryList" class="caixa-history-list"></div>
           <div id="caixaHistoryEmpty" class="empty-state" style="display:none;">
             <div class="ee-icon">🗂️</div>
             Nenhuma abertura de caixa registrada ainda.
@@ -825,6 +830,31 @@ const nowTime = () => { const d = new Date(); return `${pad2(d.getHours())}:${pa
 const nowStamp = () => { const d = new Date(); return `${todayKey(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 
+// Faz o parse de datas/horas mesmo quando o valor veio "sujo" (ex: um Date completo
+// serializado como "Thu Jul 02 2026 18:48:38 GMT-0300 (Horário Padrão de Brasília)"),
+// além dos formatos normais "YYYY-MM-DD" e "YYYY-MM-DD HH:MM:SS".
+function parseFlexibleDate(str){
+  if(!str) return null;
+  const s = String(str).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if(m){
+    return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), Number(m[4]||0), Number(m[5]||0), Number(m[6]||0));
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+const MONTHS_BR = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+function formatDateBRFull(str){
+  const d = parseFlexibleDate(str);
+  if(!d) return '—';
+  return `${d.getDate()} de ${MONTHS_BR[d.getMonth()]} de ${d.getFullYear()}`;
+}
+function formatTimeBRShort(str){
+  const d = parseFlexibleDate(str);
+  if(!d) return '—';
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -1005,6 +1035,13 @@ async function storageListKeys(prefix){
   }catch(e){}
   return Array.from(keys);
 }
+async function storageDelete(key){
+  try{ localStorage.removeItem(LOCAL_STORAGE_PREFIX + key); }catch(e){}
+  if(storageHasCloud() && typeof window.storage.delete === 'function'){
+    try{ await window.storage.delete(key, true); }catch(e){}
+  }
+}
+
 
 
 /* ---------- Sincronização entre dispositivos / modo offline ---------- */
@@ -1690,37 +1727,134 @@ async function refreshCaixaSessionView(){
 }
 
 async function renderCaixaHistory(){
-  const body = document.getElementById('caixaHistoryBody');
+  const list = document.getElementById('caixaHistoryList');
   const empty = document.getElementById('caixaHistoryEmpty');
-  if(!body) return;
+  if(!list) return;
   const all = await getAllLocalCashSessions();
   all.sort((a, b) => String(b.openedAt || '').localeCompare(String(a.openedAt || '')));
   const rows = all.slice(0, 60);
   if(!rows.length){
-    body.innerHTML = '';
+    list.innerHTML = '';
     if(empty) empty.style.display = '';
     return;
   }
   if(empty) empty.style.display = 'none';
-  body.innerHTML = rows.map(s => {
-    const statusBadge = s.status === 'aberto'
-      ? '<span class="badge badge-open">Aberto</span>'
-      : '<span class="badge badge-closed">Fechado</span>';
-    const dinheiroEsperado = s.expected ? (s.expected['Dinheiro'] || 0) : 0;
-    const dinheiroContado = s.counted ? (s.counted['Dinheiro'] || 0) : 0;
+  list.innerHTML = rows.map(s => {
+    const isFechado = s.status === 'fechado';
+    const statusBadge = isFechado
+      ? '<span class="badge badge-closed">Fechado</span>'
+      : '<span class="badge badge-open">Aberto</span>';
+    const totalEsperado = isFechado ? Object.values(s.expected || {}).reduce((a,n)=>a+(Number(n)||0),0) : 0;
+    const totalContado = isFechado ? Object.values(s.counted || {}).reduce((a,n)=>a+(Number(n)||0),0) : 0;
     const diffTotal = s.diffTotal || 0;
-    return `<tr>
-      <td>${escapeHtml(displayDateBR(s.date))}</td>
-      <td>${escapeHtml(s.openedAt || '')}</td>
-      <td class="num">${fmt(s.openingAmount)}</td>
-      <td>${escapeHtml(s.closedAt || '—')}</td>
-      <td class="num">${s.status === 'fechado' ? fmt(dinheiroEsperado) : '—'}</td>
-      <td class="num">${s.status === 'fechado' ? fmt(dinheiroContado) : '—'}</td>
-      <td class="num ${s.status === 'fechado' ? diffClass(diffTotal) : ''}">${s.status === 'fechado' ? fmt(diffTotal) : '—'}</td>
-      <td>${statusBadge}</td>
-    </tr>`;
+    const openLine = `Aberto às <b>${escapeHtml(formatTimeBRShort(s.openedAt))}</b> · Valor de abertura: <b>${fmt(s.openingAmount)}</b>`;
+    const closeLine = isFechado
+      ? `Fechado às <b>${escapeHtml(formatTimeBRShort(s.closedAt))}</b>`
+      : 'Ainda não foi fechado';
+    const resultHtml = isFechado ? `
+      <div class="caixa-history-result">
+        <div><span>Esperado</span><b>${fmt(totalEsperado)}</b></div>
+        <div><span>Contado</span><b>${fmt(totalContado)}</b></div>
+        <div><span>Diferença</span><b class="${diffClass(diffTotal)}">${fmt(diffTotal)}</b></div>
+      </div>` : '';
+    return `<div class="caixa-history-card">
+      <div>
+        <div class="caixa-history-date">${escapeHtml(formatDateBRFull(s.date))}</div>
+        <div class="caixa-history-times">
+          <span>${openLine}</span>
+          <span>${closeLine}</span>
+        </div>
+      </div>
+      ${resultHtml}
+      ${statusBadge}
+    </div>`;
   }).join('');
 }
+
+/* ---------- Correção de sessões de caixa com chave/data corrompida (duplicatas) ---------- */
+function sessionDedupeSignature(s){
+  return JSON.stringify({
+    opening: roundMoney(Number(s.openingAmount)||0),
+    status: s.status || '',
+    openedTime: formatTimeBRShort(s.openedAt),
+    closedTime: s.closedAt ? formatTimeBRShort(s.closedAt) : '',
+    diffTotal: roundMoney(Number(s.diffTotal)||0),
+    closingNotes: s.closingNotes || ''
+  });
+}
+async function findCorruptedCashSessionKeys(){
+  const validKeyRe = /^\d{4}-\d{2}-\d{2}$/;
+  const keys = await storageListKeys('caixaSessions:');
+  return keys.filter(k => !validKeyRe.test(k.slice('caixaSessions:'.length)));
+}
+async function cleanupCorruptedCashSessions(){
+  const badKeys = await findCorruptedCashSessionKeys();
+  let moved = 0, duplicatesRemoved = 0, keysRemoved = 0;
+  for(const badKey of badKeys){
+    const arr = await storageGet(badKey);
+    if(Array.isArray(arr) && arr.length){
+      const byCanonical = {};
+      arr.forEach(rec=>{
+        const ref = rec.date || rec.openedAt || badKey.slice('caixaSessions:'.length);
+        const parsed = parseFlexibleDate(ref);
+        const canonical = parsed ? todayKey(parsed) : todayKey();
+        rec.date = canonical;
+        (byCanonical[canonical] = byCanonical[canonical] || []).push(rec);
+      });
+      for(const canonical of Object.keys(byCanonical)){
+        const target = await storageGet('caixaSessions:' + canonical) || [];
+        const existingSigs = new Set(target.map(sessionDedupeSignature));
+        const existingIds = new Set(target.map(r=>String(r.id)));
+        let addedHere = 0;
+        byCanonical[canonical].forEach(rec=>{
+          const sig = sessionDedupeSignature(rec);
+          if((rec.id && existingIds.has(String(rec.id))) || existingSigs.has(sig)){
+            duplicatesRemoved++;
+            return;
+          }
+          target.push(rec);
+          if(rec.id) existingIds.add(String(rec.id));
+          existingSigs.add(sig);
+          addedHere++;
+          moved++;
+        });
+        if(addedHere) await storageSet('caixaSessions:' + canonical, target);
+      }
+    }
+    await storageDelete(badKey);
+    keysRemoved++;
+  }
+  return {moved, duplicatesRemoved, keysRemoved};
+}
+async function handleFixCaixaHistoryClick(){
+  const badKeys = await findCorruptedCashSessionKeys();
+  if(!badKeys.length){
+    showToast('Nenhuma duplicata ou data corrompida encontrada no histórico de caixa 🎉');
+    return;
+  }
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:440px;">
+      <h3>Corrigir histórico de caixa</h3>
+      <p class="helper-text" style="margin-top:-8px;">Encontrei ${badKeys.length} registro(s) salvos com data corrompida (a causa das linhas "sujas" com GMT/fuso horário). Vou corrigir a data de cada sessão e juntar com a versão correta, removendo o que for duplicado. Nenhuma sessão de caixa válida será apagada.</p>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button type="button" class="btn btn-ghost" style="flex:1;" id="fixCaixaAbort">Voltar</button>
+        <button type="button" class="btn btn-primary" style="flex:1;" id="fixCaixaConfirm">Corrigir agora</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+  overlay.querySelector('#fixCaixaAbort').addEventListener('click', ()=>overlay.remove());
+  overlay.querySelector('#fixCaixaConfirm').addEventListener('click', async ()=>{
+    overlay.remove();
+    const result = await cleanupCorruptedCashSessions();
+    await renderCaixaHistory();
+    await refreshCaixaSessionView();
+    showToast(`Histórico corrigido: ${result.moved} sessão(ões) reorganizada(s), ${result.duplicatesRemoved} duplicata(s) removida(s).`);
+  });
+}
+document.getElementById('fixCaixaHistoryBtn').addEventListener('click', handleFixCaixaHistoryClick);
 
 function openCashOpeningModal(mandatory){
   const overlay = document.createElement('div');
@@ -3600,6 +3734,7 @@ function openSaleDetailModal(saleId){
         <button class="btn btn-ghost" style="flex:1;" id="saleDetailPrintA4">🖨️ A4</button>
         <button class="btn btn-ghost" style="flex:1;" id="saleDetailPrint80">🧾 80mm</button>
       </div>
+      <button class="btn btn-ghost btn-block" id="saleDetailEditCustomer" style="margin-top:8px;">✏️ Editar cliente</button>
       ${!sale.canceled ? `<button class="btn btn-danger btn-block" id="saleDetailCancel" style="margin-top:8px;">↩️ Cancelar / devolver esta venda</button>` : ''}
       <button class="btn btn-primary btn-block" id="saleDetailClose" style="margin-top:8px;">Fechar</button>
     </div>`;
@@ -3607,8 +3742,75 @@ function openSaleDetailModal(saleId){
   document.getElementById('saleDetailClose').onclick = ()=>overlay.remove();
   document.getElementById('saleDetailPrintA4').onclick = ()=>printSale(sale, 'a4');
   document.getElementById('saleDetailPrint80').onclick = ()=>printSale(sale, '80mm');
+  document.getElementById('saleDetailEditCustomer').onclick = ()=>openEditSaleCustomerModal(sale, overlay);
   const cancelBtn = document.getElementById('saleDetailCancel');
   if(cancelBtn) cancelBtn.onclick = ()=>openCancelSaleModal(sale, overlay);
+}
+
+/* ---------- Edição do cliente de uma venda já registrada ---------- */
+function openEditSaleCustomerModal(sale, parentOverlay){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const isCliente = sale.saleType === 'cliente';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:420px;">
+      <h3>Editar cliente da venda #${escapeHtml(saleShortId(sale))}</h3>
+      <p class="helper-text" style="margin-top:-8px;">Você pode transformar uma venda de balcão em venda para um cliente específico (ou vice-versa).</p>
+      <label>Tipo de venda</label>
+      <div class="pay-methods" id="editSaleTypeMethods" style="margin-bottom:10px;">
+        <button type="button" class="pay-btn${isCliente ? '' : ' selected'}" data-edit-sale-type="balcao">🧍 Balcão</button>
+        <button type="button" class="pay-btn${isCliente ? ' selected' : ''}" data-edit-sale-type="cliente">🙋 Cliente</button>
+      </div>
+      <div class="field" id="editCustomerNameField" style="display:${isCliente ? 'block' : 'none'};">
+        <label>Nome do cliente</label>
+        <input type="text" id="editCustomerNameInput" class="force-uppercase" placeholder="Nome do cliente" value="${escapeHtml(sale.customerName || '')}">
+      </div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button type="button" class="btn btn-ghost" style="flex:1;" id="editCustomerAbort">Voltar</button>
+        <button type="button" class="btn btn-primary" style="flex:1;" id="editCustomerConfirm">Salvar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  let editSaleType = sale.saleType === 'cliente' ? 'cliente' : 'balcao';
+  overlay.querySelectorAll('[data-edit-sale-type]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      editSaleType = btn.dataset.editSaleType;
+      overlay.querySelectorAll('[data-edit-sale-type]').forEach(b=>b.classList.toggle('selected', b===btn));
+      document.getElementById('editCustomerNameField').style.display = editSaleType==='cliente' ? 'block' : 'none';
+      if(editSaleType==='cliente') document.getElementById('editCustomerNameInput').focus();
+    });
+  });
+  const nameInput = document.getElementById('editCustomerNameInput');
+  nameInput.addEventListener('input', ()=>forceUppercaseValue(nameInput));
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+  overlay.querySelector('#editCustomerAbort').addEventListener('click', ()=>overlay.remove());
+  overlay.querySelector('#editCustomerConfirm').addEventListener('click', async ()=>{
+    forceUppercaseValue(nameInput);
+    const newName = nameInput.value.trim();
+    if(editSaleType==='cliente' && !newName){
+      showToast('Digite o nome do cliente');
+      nameInput.focus();
+      return;
+    }
+    await updateSaleCustomer(sale, editSaleType, editSaleType==='cliente' ? newName : '');
+    overlay.remove();
+    if(parentOverlay) parentOverlay.remove();
+  });
+}
+
+async function updateSaleCustomer(sale, newSaleType, newCustomerName){
+  const dk = sale.date || todayKey();
+  const arr = await loadDaySales(dk);
+  const idx = arr.findIndex(s=>String(s.id)===String(sale.id));
+  sale.saleType = newSaleType;
+  sale.customerName = newCustomerName || '';
+  sale.updatedAt = nowStamp();
+  if(idx>=0){ arr[idx] = sale; } else { arr.push(sale); }
+  await saveDaySales(dk, arr);
+
+  refreshReportsLive();
+  syncSaleIfAuto(sale);
+  showToast('Cliente da venda #' + saleShortId(sale) + ' atualizado' + (sale.customerName ? ' — ' + sale.customerName : ' — Balcão'));
 }
 
 /* ---------- Cancelamento / devolução de venda ---------- */
@@ -3908,11 +4110,13 @@ function appendVenda_(ss, sale) {
     }
   }
   if (existingRows.length) {
-    // Venda já sincronizada: apenas atualiza status de cancelamento e atualizado em
+    // Venda já sincronizada: atualiza status de cancelamento, cliente/tipo e atualizado em
     existingRows.forEach(function (rowIndex) {
       if (map['Cancelada'] != null) sheet.getRange(rowIndex, map['Cancelada'] + 1).setValue(sale.canceled ? 'SIM' : 'NÃO');
       if (map['Motivo Cancelamento'] != null) sheet.getRange(rowIndex, map['Motivo Cancelamento'] + 1).setValue(sale.cancelReason || '');
       if (map['Cancelada Em'] != null) sheet.getRange(rowIndex, map['Cancelada Em'] + 1).setValue(sale.canceledAt || '');
+      if (map['Tipo'] != null) sheet.getRange(rowIndex, map['Tipo'] + 1).setValue(sale.saleType || '');
+      if (map['Cliente'] != null) sheet.getRange(rowIndex, map['Cliente'] + 1).setValue(sale.customerName || '');
       if (map['Atualizado Em'] != null) sheet.getRange(rowIndex, map['Atualizado Em'] + 1).setValue(sale.updatedAt || '');
     });
     return;
