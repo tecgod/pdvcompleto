@@ -1146,7 +1146,7 @@ async function saveImportedCashSession(session){
    repetições e regrava cada sessão na chave certa (a data em que ela realmente
    aconteceu). Nenhuma sessão real é apagada — apenas as cópias repetidas e as
    chaves "sujas" que sobraram de versões antigas. */
-const CAIXA_CLEANUP_FLAG = 'caixaSessionsCleanupV1';
+const CAIXA_CLEANUP_FLAG = 'caixaSessionsCleanupV2';
 
 function betterCashSessionRecord(a, b){
   // Entre duas cópias da mesma sessão (mesmo id), fica com a mais completa/recente.
@@ -1295,10 +1295,13 @@ async function consolidateFlatStorage(prefix, flagKey, saveFn){
   }
 }
 async function consolidateSalesStorage(){
-  await consolidateFlatStorage('sales:', 'salesCleanupV1', saveDaySales);
+  // Versão V2: reexecuta a consolidação, pois duplicatas voltaram a surgir
+  // depois da primeira limpeza (ex: sincronizações que gravaram o mesmo
+  // registro em mais de uma data), e o marcador V1 impedia uma nova limpeza.
+  await consolidateFlatStorage('sales:', 'salesCleanupV2', saveDaySales);
 }
 async function consolidateWithdrawalsStorage(){
-  await consolidateFlatStorage('withdrawals:', 'withdrawalsCleanupV1', saveDayWithdrawals);
+  await consolidateFlatStorage('withdrawals:', 'withdrawalsCleanupV2', saveDayWithdrawals);
 }
 
 async function saveImportedSale(sale){
@@ -1865,7 +1868,11 @@ async function getOpenCashSession(){
 }
 
 async function getSessionCashSummary(session){
-  const dateKeys = cashSessionDateKeys(session);
+  // Usamos a versão "Full" (baseada em openedAt/closedAt reais, não só em
+  // session.date) porque o campo session.date pode estar errado em registros
+  // antigos/duplicados — usar só ele fazia esta função buscar o balde de dados
+  // do dia errado.
+  const dateKeys = cashSessionDateKeysFull(session);
   let sales = [];
   let withdrawals = [];
   for(const dk of dateKeys){
@@ -5321,7 +5328,7 @@ installEnterFlow(document.getElementById('view-backup'), ['backupUrl'], ()=>docu
    recalcula expected/diff/diffTotal com a lógica corrigida, usando o
    "counted" (contagem real feita no fechamento, que não muda) já gravado.
    Sessões abertas não são tocadas. */
-const CAIXA_EXPECTED_RECALC_FLAG = 'caixaExpectedRecalcV2';
+const CAIXA_EXPECTED_RECALC_FLAG = 'caixaExpectedRecalcV3';
 
 async function recalcClosedCashSessionsExpected(){
   try{
