@@ -1882,8 +1882,15 @@ async function getSessionCashSummary(session){
   // Agora usamos a data+hora real do evento (gravada uma única vez, na hora da venda/
   // retirada) comparada via parseFlexibleDate — mesma lógica já usada em
   // getSessionMovementSummary — para saber se o registro pertence a esta sessão.
+  //
+  // IMPORTANTE: também aplicamos o limite de CIMA (closedAt) quando a sessão já
+  // está fechada. Sem isso, ao recalcular um caixa fechado esta função continuava
+  // somando vendas/retiradas de sessões seguintes (inclusive a de hoje), o que
+  // fazia o relatório de um caixa já fechado não bater com o relatório geral do dia.
   const lowerDate = parseFlexibleDate(session.openedAt);
+  const upperDate = session.status === 'fechado' ? parseFlexibleDate(session.closedAt) : null;
   const lowerTime = lowerDate ? lowerDate.getTime() : null;
+  const upperTime = upperDate ? upperDate.getTime() : null;
   const eventTime = (o) => {
     const d = parseFlexibleDate(`${String((o && o.date) || '')} ${String((o && o.time) || '00:00')}:00`);
     return d ? d.getTime() : null;
@@ -1894,6 +1901,7 @@ async function getSessionCashSummary(session){
     // o registro (não escondê-lo) do que descartá-lo por engano.
     if(v === null) return true;
     if(lowerTime !== null && v < lowerTime) return false;
+    if(upperTime !== null && v > upperTime) return false;
     return true;
   };
   sales = sales.filter(s => inRange(s));
@@ -5313,7 +5321,7 @@ installEnterFlow(document.getElementById('view-backup'), ['backupUrl'], ()=>docu
    recalcula expected/diff/diffTotal com a lógica corrigida, usando o
    "counted" (contagem real feita no fechamento, que não muda) já gravado.
    Sessões abertas não são tocadas. */
-const CAIXA_EXPECTED_RECALC_FLAG = 'caixaExpectedRecalcV1';
+const CAIXA_EXPECTED_RECALC_FLAG = 'caixaExpectedRecalcV2';
 
 async function recalcClosedCashSessionsExpected(){
   try{
