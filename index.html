@@ -1211,6 +1211,86 @@ async function consolidateCashSessionsStorage(){
     // Qualquer erro aqui não deve travar o app nem arriscar os dados: só não limpa agora.
   }
 }
+
+/* ---------- Limpeza definitiva de duplicidade em vendas e retiradas ----------
+   O mesmo problema das sessões de caixa (registro gravado em mais de uma
+   "gaveta" de armazenamento por causa de sincronizações antigas) também pode
+   acontecer com vendas e retiradas, já que usam o mesmo mecanismo de chaves
+   por data. Isso inflava os totais de "entrou"/"saiu" nos relatórios. Aqui
+   fazemos a mesma consolidação seguindo o mesmo princípio: uma única vez,
+   agrupa por id (mantendo a versão mais recente/mais completa), regrava cada
+   registro na data certa e remove só as chaves duplicadas. Nenhuma venda ou
+   retirada real é apagada. */
+function betterFlatRecord(a, b){
+  // Entre duas cópias do mesmo registro (mesmo id), prioriza o estado mais
+  // avançado (cancelado prevalece sobre não cancelado) e, em empate, o mais recente.
+  const ca = (a && a.canceled) ? 1 : 0;
+  const cb = (b && b.canceled) ? 1 : 0;
+  if(cb !== ca) return cb > ca ? b : a;
+  const ta = String((a && a.updatedAt) || '');
+  const tb = String((b && b.updatedAt) || '');
+  return tb > ta ? b : a;
+}
+function canonicalRecordDate(o){
+  const d = parseFlexibleDate(o && o.date);
+  return d ? todayKey(d) : (o && o.date) || todayKey();
+}
+async function consolidateFlatStorage(prefix, flagKey, saveFn){
+  try{
+    const already = await storageGet(flagKey);
+    if(already) return;
+
+    const keys = await storageListKeys(prefix);
+    if(!keys.length){ await storageSet(flagKey, true); return; }
+
+    const byId = new Map();
+    const noId = [];
+    for(const k of keys){
+      const arr = await storageGet(k);
+      if(!Array.isArray(arr)) continue;
+      arr.forEach(o=>{
+        if(!o) return;
+        if(o.id){
+          const key = String(o.id);
+          const current = byId.get(key);
+          byId.set(key, current ? betterFlatRecord(current, o) : o);
+        } else {
+          noId.push(o);
+        }
+      });
+    }
+
+    const finalRecords = Array.from(byId.values()).concat(noId);
+
+    const byDate = {};
+    finalRecords.forEach(o=>{
+      const dk = canonicalRecordDate(o);
+      if(!byDate[dk]) byDate[dk] = [];
+      byDate[dk].push(o);
+    });
+
+    for(const dk of Object.keys(byDate)){
+      await saveFn(dk, byDate[dk]);
+    }
+
+    // Remove só as chaves que não são mais necessárias (as "sujas"/repetidas).
+    const validKeys = new Set(Object.keys(byDate).map(dk => prefix + dk));
+    for(const k of keys){
+      if(!validKeys.has(k)) await storageDeleteKey(k);
+    }
+
+    await storageSet(flagKey, true);
+  }catch(e){
+    // Qualquer erro aqui não deve travar o app nem arriscar os dados: só não limpa agora.
+  }
+}
+async function consolidateSalesStorage(){
+  await consolidateFlatStorage('sales:', 'salesCleanupV2', saveDaySales);
+}
+async function consolidateWithdrawalsStorage(){
+  await consolidateFlatStorage('withdrawals:', 'withdrawalsCleanupV2', saveDayWithdrawals);
+}
+
 async function saveImportedSale(sale){
   if(!sale || !sale.id) return false;
   const dk = sale.date || todayKey();
@@ -1728,6 +1808,45 @@ async function getOpenCashSession(){
   return null;
 }
 
+/* ---------- Remove registros duplicados (mesmo id) vindos de "gavetas" repetidas ----------
+   Sincronizações antigas podem ter deixado a mesma venda/retirada gravada em mais de
+   uma chave de armazenamento (ex.: uma com a data certa e outra com uma data "suja",
+   corrompida). Isso inflava os totais de "entrou"/"saiu" nos relatórios, contando o
+   mesmo registro duas vezes. Aqui garantimos que, independente de quantas cópias
+   existam no armazenamento, cada id só é contado uma única vez no cálculo. */
+function dedupeById(arr){
+  const seen = new Set();
+  const out = [];
+  (Array.isArray(arr) ? arr : []).forEach(o=>{
+    if(!o) return;
+    const key = o.id != null ? String(o.id) : null;
+    if(key){
+      if(seen.has(key)) return;
+      seen.add(key);
+    }
+    out.push(o);
+  });
+  return out;
+}
+
+/* ---------- Timestamp robusto de um registro (data+hora) ----------
+   Monta o instante real do evento a partir dos campos "date" e "time" do registro,
+   usando parseFlexibleDate — que também entende datas em formatos antigos/corrompidos
+   (ex.: strings vindas de uma sincronização antiga com o Google Sheets) — em vez de
+   comparar texto puro, que quebra se o formato não for exatamente "AAAA-MM-DD". */
+function eventTimestamp(o){
+  const d = parseFlexibleDate(o && o.date);
+  if(!d) return null;
+  const m = String((o && o.time) || '').match(/(\d{1,2}):(\d{2})/);
+  const hh = m ? Number(m[1]) : 0;
+  const mm = m ? Number(m[2]) : 0;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0).getTime();
+}
+function stampTimestamp(str){
+  const d = parseFlexibleDate(str);
+  return d ? d.getTime() : null;
+}
+
 async function getSessionCashSummary(session){
   const dateKeys = cashSessionDateKeys(session);
   let sales = [];
@@ -1738,6 +1857,8 @@ async function getSessionCashSummary(session){
     sales = sales.concat(Array.isArray(s) ? s : []);
     withdrawals = withdrawals.concat(Array.isArray(w) ? w : []);
   }
+  sales = dedupeById(sales);
+  withdrawals = dedupeById(withdrawals);
   const cutoff = session.openedAt || '';
   sales = sales.filter(s => String(s.updatedAt || '') >= cutoff);
   withdrawals = withdrawals.filter(w => String(w.updatedAt || '') >= cutoff);
@@ -1774,16 +1895,25 @@ async function getSessionMovementSummary(session){
     sales = sales.concat(Array.isArray(s) ? s : []);
     withdrawals = withdrawals.concat(Array.isArray(w) ? w : []);
   }
-  const lower = session.openedAt || '';
-  const upper = session.status === 'fechado' ? (session.closedAt || '') : '';
-  const inRange = (t) => {
-    const v = String(t || '');
-    if(lower && v < lower) return false;
-    if(upper && v > upper) return false;
+  // Remove cópias duplicadas do mesmo registro (mesmo id) antes de somar qualquer coisa —
+  // isso evita contar a mesma venda/retirada duas vezes quando ela ficou salva em mais
+  // de uma "gaveta" de data por causa de uma sincronização antiga.
+  sales = dedupeById(sales);
+  withdrawals = dedupeById(withdrawals);
+  const lower = stampTimestamp(session.openedAt);
+  const upper = session.status === 'fechado' ? stampTimestamp(session.closedAt) : null;
+  // Importante: usamos data+hora do registro (gravados uma única vez, na hora da venda/retirada)
+  // e não "updatedAt" — porque updatedAt muda depois (ex: editar cliente ou cancelar a venda),
+  // o que faria uma venda de ontem "sumir" da sessão de ontem se fosse mexida hoje.
+  const inRange = (o) => {
+    const v = eventTimestamp(o);
+    if(v == null) return true; // não descarta registro cuja data não deu pra entender
+    if(lower != null && v < lower) return false;
+    if(upper != null && v > upper) return false;
     return true;
   };
-  sales = sales.filter(s => inRange(s.updatedAt));
-  withdrawals = withdrawals.filter(w => inRange(w.updatedAt));
+  sales = sales.filter(s => inRange(s));
+  withdrawals = withdrawals.filter(w => inRange(w));
   return Object.assign({sales, withdrawals}, calculateFinancialSummary(sales, withdrawals));
 }
 
@@ -5105,11 +5235,13 @@ async function init(){
   await loadWithdrawalCategories();
   renderWithdrawalCategoryOptions(document.getElementById('wCategory'), '');
   setSyncStatus(navigator.onLine ? 'Sincroniza&ccedil;&atilde;o pronta' : 'Offline: vendas locais ativadas', navigator.onLine ? 'online' : 'offline');
+  await consolidateSalesStorage();
+  await consolidateWithdrawalsStorage();
+  await consolidateCashSessionsStorage();
   renderProductGrid();
   renderCart();
   await refreshRegisterDisplay();
   await refreshCaixaSummary();
-  await consolidateCashSessionsStorage();
   await refreshCaixaSessionView();
   refreshReportsLive();
   processSyncQueue();
