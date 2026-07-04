@@ -578,8 +578,15 @@
         <div class="card card-pad" style="margin-top:20px;">
           <div class="section-title">
             <h2>Histórico de aberturas e fechamentos</h2>
-            <button type="button" class="btn btn-ghost btn-sm" id="fixCaixaHistoryBtn">🧹 Corrigir duplicatas</button>
           </div>
+          <div class="date-range" style="margin-bottom:6px;">
+            <div class="field">
+              <label>Ver por dia</label>
+              <input type="date" id="caixaHistoryDateFilter">
+            </div>
+            <button type="button" class="btn btn-ghost" id="caixaHistoryFilterClear">Ver recentes</button>
+          </div>
+          <p class="helper-text" id="caixaHistoryFilterNote" style="margin-top:0;"></p>
           <div id="caixaHistoryList" class="caixa-history-list"></div>
           <div id="caixaHistoryEmpty" class="empty-state" style="display:none;">
             <div class="ee-icon">🗂️</div>
@@ -1034,12 +1041,6 @@ async function storageListKeys(prefix){
     }
   }catch(e){}
   return Array.from(keys);
-}
-async function storageDelete(key){
-  try{ localStorage.removeItem(LOCAL_STORAGE_PREFIX + key); }catch(e){}
-  if(storageHasCloud() && typeof window.storage.delete === 'function'){
-    try{ await window.storage.delete(key, true); }catch(e){}
-  }
 }
 
 
@@ -1726,13 +1727,39 @@ async function refreshCaixaSessionView(){
   await renderCaixaHistory();
 }
 
+let caixaHistoryFilterDate = '';
+
+function cashSessionSortTime(s){
+  const d = parseFlexibleDate(s.openedAt) || parseFlexibleDate(s.date);
+  return d ? d.getTime() : 0;
+}
+function cashSessionCanonicalDate(s){
+  const d = parseFlexibleDate(s.date) || parseFlexibleDate(s.openedAt);
+  return d ? todayKey(d) : '';
+}
+
 async function renderCaixaHistory(){
   const list = document.getElementById('caixaHistoryList');
   const empty = document.getElementById('caixaHistoryEmpty');
   if(!list) return;
   const all = await getAllLocalCashSessions();
-  all.sort((a, b) => String(b.openedAt || '').localeCompare(String(a.openedAt || '')));
-  const rows = all.slice(0, 60);
+  let sessions = dedupeCashSessionsForDisplay(all);
+  // Ordem cronológica de verdade (usa a data/hora real, não o texto salvo,
+  // que pode estar em formatos diferentes e bagunçar uma ordenação por string).
+  sessions.sort((a, b) => cashSessionSortTime(b) - cashSessionSortTime(a));
+
+  if(caixaHistoryFilterDate){
+    sessions = sessions.filter(s => cashSessionCanonicalDate(s) === caixaHistoryFilterDate);
+  }
+
+  const rows = caixaHistoryFilterDate ? sessions : sessions.slice(0, 30);
+  const noteEl = document.getElementById('caixaHistoryFilterNote');
+  if(noteEl){
+    noteEl.textContent = caixaHistoryFilterDate
+      ? `Mostrando ${rows.length} sessão(ões) de ${formatDateBRFull(caixaHistoryFilterDate)}.`
+      : `Mostrando as ${rows.length} sessões mais recentes. Use o filtro para ver um dia específico.`;
+  }
+
   if(!rows.length){
     list.innerHTML = '';
     if(empty) empty.style.display = '';
@@ -1771,7 +1798,12 @@ async function renderCaixaHistory(){
   }).join('');
 }
 
-/* ---------- Correção de sessões de caixa com chave/data corrompida (duplicatas) ---------- */
+/* ---------- Filtro apenas visual de sessões repetidas (não altera nada salvo) ----------
+   Algumas sessões antigas ficaram gravadas duas vezes (uma com a chave de data certa,
+   outra com uma chave "suja"/corrompida, sobra de uma versão antiga). Isso é só um
+   problema de exibição: não afeta abertura/fechamento de caixa, relatórios nem
+   sincronização do dia atual. Por segurança, aqui só ESCONDEMOS a repetição na tela;
+   nenhum dado é apagado ou movido no armazenamento. */
 function sessionDedupeSignature(s){
   return JSON.stringify({
     opening: roundMoney(Number(s.openingAmount)||0),
@@ -1782,79 +1814,28 @@ function sessionDedupeSignature(s){
     closingNotes: s.closingNotes || ''
   });
 }
-async function findCorruptedCashSessionKeys(){
-  const validKeyRe = /^\d{4}-\d{2}-\d{2}$/;
-  const keys = await storageListKeys('caixaSessions:');
-  return keys.filter(k => !validKeyRe.test(k.slice('caixaSessions:'.length)));
-}
-async function cleanupCorruptedCashSessions(){
-  const badKeys = await findCorruptedCashSessionKeys();
-  let moved = 0, duplicatesRemoved = 0, keysRemoved = 0;
-  for(const badKey of badKeys){
-    const arr = await storageGet(badKey);
-    if(Array.isArray(arr) && arr.length){
-      const byCanonical = {};
-      arr.forEach(rec=>{
-        const ref = rec.date || rec.openedAt || badKey.slice('caixaSessions:'.length);
-        const parsed = parseFlexibleDate(ref);
-        const canonical = parsed ? todayKey(parsed) : todayKey();
-        rec.date = canonical;
-        (byCanonical[canonical] = byCanonical[canonical] || []).push(rec);
-      });
-      for(const canonical of Object.keys(byCanonical)){
-        const target = await storageGet('caixaSessions:' + canonical) || [];
-        const existingSigs = new Set(target.map(sessionDedupeSignature));
-        const existingIds = new Set(target.map(r=>String(r.id)));
-        let addedHere = 0;
-        byCanonical[canonical].forEach(rec=>{
-          const sig = sessionDedupeSignature(rec);
-          if((rec.id && existingIds.has(String(rec.id))) || existingSigs.has(sig)){
-            duplicatesRemoved++;
-            return;
-          }
-          target.push(rec);
-          if(rec.id) existingIds.add(String(rec.id));
-          existingSigs.add(sig);
-          addedHere++;
-          moved++;
-        });
-        if(addedHere) await storageSet('caixaSessions:' + canonical, target);
-      }
-    }
-    await storageDelete(badKey);
-    keysRemoved++;
-  }
-  return {moved, duplicatesRemoved, keysRemoved};
-}
-async function handleFixCaixaHistoryClick(){
-  const badKeys = await findCorruptedCashSessionKeys();
-  if(!badKeys.length){
-    showToast('Nenhuma duplicata ou data corrompida encontrada no histórico de caixa 🎉');
-    return;
-  }
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = `
-    <div class="modal" style="max-width:440px;">
-      <h3>Corrigir histórico de caixa</h3>
-      <p class="helper-text" style="margin-top:-8px;">Encontrei ${badKeys.length} registro(s) salvos com data corrompida (a causa das linhas "sujas" com GMT/fuso horário). Vou corrigir a data de cada sessão e juntar com a versão correta, removendo o que for duplicado. Nenhuma sessão de caixa válida será apagada.</p>
-      <div style="display:flex; gap:8px; margin-top:8px;">
-        <button type="button" class="btn btn-ghost" style="flex:1;" id="fixCaixaAbort">Voltar</button>
-        <button type="button" class="btn btn-primary" style="flex:1;" id="fixCaixaConfirm">Corrigir agora</button>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
-  overlay.querySelector('#fixCaixaAbort').addEventListener('click', ()=>overlay.remove());
-  overlay.querySelector('#fixCaixaConfirm').addEventListener('click', async ()=>{
-    overlay.remove();
-    const result = await cleanupCorruptedCashSessions();
-    await renderCaixaHistory();
-    await refreshCaixaSessionView();
-    showToast(`Histórico corrigido: ${result.moved} sessão(ões) reorganizada(s), ${result.duplicatesRemoved} duplicata(s) removida(s).`);
+function dedupeCashSessionsForDisplay(sessions){
+  const seenIds = new Set();
+  const seenSigs = new Set();
+  const result = [];
+  sessions.forEach(s=>{
+    const sig = sessionDedupeSignature(s);
+    if((s.id && seenIds.has(String(s.id))) || seenSigs.has(sig)) return;
+    if(s.id) seenIds.add(String(s.id));
+    seenSigs.add(sig);
+    result.push(s);
   });
+  return result;
 }
-document.getElementById('fixCaixaHistoryBtn').addEventListener('click', handleFixCaixaHistoryClick);
+document.getElementById('caixaHistoryDateFilter').addEventListener('change', (e)=>{
+  caixaHistoryFilterDate = e.target.value || '';
+  renderCaixaHistory();
+});
+document.getElementById('caixaHistoryFilterClear').addEventListener('click', ()=>{
+  caixaHistoryFilterDate = '';
+  document.getElementById('caixaHistoryDateFilter').value = '';
+  renderCaixaHistory();
+});
 
 function openCashOpeningModal(mandatory){
   const overlay = document.createElement('div');
