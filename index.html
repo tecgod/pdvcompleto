@@ -1121,7 +1121,10 @@ async function getAllLocalCashSessions(){
 }
 async function saveImportedCashSession(session){
   if(!session || !session.id) return false;
-  const dk = session.date || todayKey();
+  // CORREÇÃO: usar session.date bruto como chave recriava um balde "sujo" toda
+  // vez que uma sessão antiga (com date em formato de Date serializado) era
+  // sincronizada. Agora sempre normalizamos para a chave de data real (aaaa-mm-dd).
+  const dk = cashSessionCanonicalDate(session) || todayKey();
   const arr = await loadDayCashSessions(dk);
   const idx = arr.findIndex(s=>String(s.id)===String(session.id));
   if(idx === -1){
@@ -1146,7 +1149,7 @@ async function saveImportedCashSession(session){
    repetições e regrava cada sessão na chave certa (a data em que ela realmente
    aconteceu). Nenhuma sessão real é apagada — apenas as cópias repetidas e as
    chaves "sujas" que sobraram de versões antigas. */
-const CAIXA_CLEANUP_FLAG = 'caixaSessionsCleanupV2';
+const CAIXA_CLEANUP_FLAG = 'caixaSessionsCleanupV3';
 
 function betterCashSessionRecord(a, b){
   // Entre duas cópias da mesma sessão (mesmo id), fica com a mais completa/recente.
@@ -1298,15 +1301,21 @@ async function consolidateSalesStorage(){
   // Versão V2: reexecuta a consolidação, pois duplicatas voltaram a surgir
   // depois da primeira limpeza (ex: sincronizações que gravaram o mesmo
   // registro em mais de uma data), e o marcador V1 impedia uma nova limpeza.
-  await consolidateFlatStorage('sales:', 'salesCleanupV2', saveDaySales);
+  // Versão V3: rodando mais uma vez, agora que a causa raiz (funções que
+  // gravavam usando o campo "date" bruto da venda como chave) foi corrigida —
+  // isso garante que o balde sujo que ainda restava seja removido de vez.
+  await consolidateFlatStorage('sales:', 'salesCleanupV3', saveDaySales);
 }
 async function consolidateWithdrawalsStorage(){
-  await consolidateFlatStorage('withdrawals:', 'withdrawalsCleanupV2', saveDayWithdrawals);
+  await consolidateFlatStorage('withdrawals:', 'withdrawalsCleanupV3', saveDayWithdrawals);
 }
 
 async function saveImportedSale(sale){
   if(!sale || !sale.id) return false;
-  const dk = sale.date || todayKey();
+  // CORREÇÃO: usar sale.date bruto como chave recriava um balde "sujo" toda vez
+  // que uma venda antiga (com date em formato de Date serializado) era
+  // sincronizada. Agora sempre normalizamos para a chave de data real (aaaa-mm-dd).
+  const dk = canonicalRecordDate(sale);
   const arr = await loadDaySales(dk);
   const idx = arr.findIndex(s=>String(s.id)===String(sale.id));
   if(idx>=0){
@@ -1326,7 +1335,8 @@ async function saveImportedSale(sale){
 }
 async function saveImportedWithdrawal(w){
   if(!w || !w.id) return false;
-  const dk = w.date || todayKey();
+  // CORREÇÃO: mesmo problema das vendas — usar w.date bruto recriava o balde sujo.
+  const dk = canonicalRecordDate(w);
   const arr = await loadDayWithdrawals(dk);
   if(arr.some(x=>String(x.id)===String(w.id))) return false;
   arr.push(w);
@@ -1851,9 +1861,9 @@ if(caixaStatGridEl){
 
 /* ---------- Abertura / fechamento de caixa ---------- */
 function cashSessionDateKeys(session){
-  const keys = [session.date || todayKey()];
+  const keys = [cashSessionCanonicalDate(session) || todayKey()];
   const t = todayKey();
-  if(t !== session.date) keys.push(t);
+  if(!keys.includes(t)) keys.push(t);
   return keys;
 }
 
@@ -4206,7 +4216,9 @@ function openEditSaleCustomerModal(sale, parentOverlay){
 }
 
 async function updateSaleCustomer(sale, newSaleType, newCustomerName){
-  const dk = sale.date || todayKey();
+  // CORREÇÃO: sale.date bruto (em vendas antigas, gravado como Date serializado)
+  // recriava um balde de armazenamento "sujo" ao editar. Agora normalizamos.
+  const dk = canonicalRecordDate(sale);
   const arr = await loadDaySales(dk);
   const idx = arr.findIndex(s=>String(s.id)===String(sale.id));
   sale.saleType = newSaleType;
@@ -4250,7 +4262,8 @@ function openCancelSaleModal(sale, parentOverlay){
 
 async function cancelSale(sale, reason){
   if(sale.canceled){ showToast('Esta venda já está cancelada'); return; }
-  const dk = sale.date || todayKey();
+  // CORREÇÃO: mesmo problema de updateSaleCustomer — normalizar a chave de data.
+  const dk = canonicalRecordDate(sale);
   const arr = await loadDaySales(dk);
   const idx = arr.findIndex(s=>String(s.id)===String(sale.id));
   sale.canceled = true;
@@ -5328,7 +5341,7 @@ installEnterFlow(document.getElementById('view-backup'), ['backupUrl'], ()=>docu
    recalcula expected/diff/diffTotal com a lógica corrigida, usando o
    "counted" (contagem real feita no fechamento, que não muda) já gravado.
    Sessões abertas não são tocadas. */
-const CAIXA_EXPECTED_RECALC_FLAG = 'caixaExpectedRecalcV3';
+const CAIXA_EXPECTED_RECALC_FLAG = 'caixaExpectedRecalcV4';
 
 async function recalcClosedCashSessionsExpected(){
   try{
