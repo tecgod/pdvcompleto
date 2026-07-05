@@ -768,6 +768,7 @@
                 <input type="date" id="mgWithdrawalDate">
               </div>
               <button type="button" class="btn btn-ghost btn-block" id="mgWithdrawalSearchBtn">Buscar retiradas dessa data</button>
+              <button type="button" class="btn btn-ghost btn-block" id="mgWithdrawalNoCatBtn" style="margin-top:8px;">🔎 Buscar retiradas sem categoria (todas as datas)</button>
               <div id="mgWithdrawalResults" style="margin-top:14px;"></div>
             </div>
 
@@ -3621,7 +3622,7 @@ function renderWithdrawalsTodayTable(){
 document.getElementById('todayWFilterCategory').addEventListener('change', renderWithdrawalsTodayTable);
 document.getElementById('todayWFilterPayment').addEventListener('change', renderWithdrawalsTodayTable);
 
-function openWithdrawalEditModal(withdrawal, dateKey){
+function openWithdrawalEditModal(withdrawal, dateKey, onSaved){
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
@@ -3699,6 +3700,7 @@ function openWithdrawalEditModal(withdrawal, dateKey){
     refreshCaixaSessionView();
     refreshReportsLive();
     showToast('Retirada atualizada');
+    if(typeof onSaved === 'function') onSaved();
   };
 
   setupPayButtonGroupKeyboard(ewMethodsEl, {
@@ -5283,37 +5285,85 @@ async function renderWithdrawalManagerResults(dateKey){
     wrap.innerHTML = `<p class="helper-text" style="margin-bottom:0;">Nenhuma retirada encontrada em ${formatDateBR(dateKey)}.</p>`;
     return;
   }
-  wrap.innerHTML = `
+  renderWithdrawalManagerTable(wrap, arr.map(w=>({w, dateKey})), false);
+}
+
+async function renderWithdrawalsWithoutCategory(){
+  const wrap = document.getElementById('mgWithdrawalResults');
+  if(!wrap) return;
+  wrap.innerHTML = `<p class="helper-text" style="margin-bottom:0;">Procurando em todo o histórico...</p>`;
+  const keys = await storageListKeys('withdrawals:');
+  let rows = [];
+  for(const k of keys){
+    const dk = k.slice('withdrawals:'.length);
+    if(!CLEAN_DATE_KEY_RE.test(dk)) continue; // ignora eventuais chaves sujas remanescentes
+    const arr = await loadDayWithdrawals(dk);
+    if(!Array.isArray(arr)) continue;
+    arr.forEach(w=>{
+      if(!w) return;
+      if(!String(w.category||'').trim() && !w.canceled) rows.push({ w, dateKey: dk });
+    });
+  }
+  rows.sort((a,b)=> a.dateKey.localeCompare(b.dateKey) || String(a.w.time||'').localeCompare(String(b.w.time||'')));
+  if(!rows.length){
+    wrap.innerHTML = `<p class="helper-text" style="margin-bottom:0;">✅ Nenhuma retirada sem categoria encontrada em todo o histórico.</p>`;
+    return;
+  }
+  wrap.innerHTML = `<p class="helper-text" style="margin-top:0;">${rows.length} retirada(s) sem categoria encontrada(s). Clique em "Editar" para corrigir cada uma.</p>`;
+  renderWithdrawalManagerTable(wrap, rows, true, true);
+}
+
+function renderWithdrawalManagerTable(wrap, rows, showDate, append){
+  const tableHtml = `
     <div class="report-table-wrap">
       <table>
-        <thead><tr><th>Hora</th><th>Descrição</th><th>Categoria</th><th>Forma</th><th class="num">Valor</th><th></th></tr></thead>
+        <thead><tr>${showDate?'<th>Data</th>':''}<th>Hora</th><th>Descrição</th><th>Categoria</th><th>Forma</th><th class="num">Valor</th><th></th></tr></thead>
         <tbody>
-          ${arr.map(w=>`<tr>
+          ${rows.map(({w,dateKey})=>`<tr>
+            ${showDate?`<td>${escapeHtml(formatDateBR(dateKey))}</td>`:''}
             <td>${escapeHtml(String(w.time||'--'))}</td>
             <td>${escapeHtml(w.description||'—')}</td>
             <td>${escapeHtml(w.category||'—')}</td>
             <td>${escapeHtml(getWithdrawalPayment(w))}</td>
             <td class="num">${fmt(w.amount)}</td>
-            <td><button type="button" class="btn btn-danger btn-sm" data-mg-del="${escapeHtml(String(w.id))}">Excluir</button></td>
+            <td style="display:flex; gap:4px;">
+              <button type="button" class="btn btn-ghost btn-sm" data-mg-edit="${escapeHtml(String(w.id))}" data-mg-editdate="${escapeHtml(dateKey)}">Editar</button>
+              <button type="button" class="btn btn-danger btn-sm" data-mg-del="${escapeHtml(String(w.id))}" data-mg-deldate="${escapeHtml(dateKey)}">Excluir</button>
+            </td>
           </tr>`).join('')}
         </tbody>
       </table>
     </div>`;
+  if(append) wrap.innerHTML += tableHtml; else wrap.innerHTML = tableHtml;
+
+  wrap.querySelectorAll('[data-mg-edit]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const dk = btn.dataset.mgEditdate;
+      const current = (await loadDayWithdrawals(dk)) || [];
+      const w = current.find(x=>String(x.id)===String(btn.dataset.mgEdit));
+      if(w) openWithdrawalEditModal(w, dk, () => {
+        if(showDate) renderWithdrawalsWithoutCategory();
+        else renderWithdrawalManagerResults(dk);
+      });
+    });
+  });
   wrap.querySelectorAll('[data-mg-del]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       if(!confirm('Excluir esta retirada do aparelho? Se ela já foi enviada para a planilha, apague a linha lá também.')) return;
-      const current = (await loadDayWithdrawals(dateKey)) || [];
+      const dk = btn.dataset.mgDeldate;
+      const current = (await loadDayWithdrawals(dk)) || [];
       const filtered = current.filter(w=>String(w.id)!==String(btn.dataset.mgDel));
-      await saveDayWithdrawals(dateKey, filtered);
+      await saveDayWithdrawals(dk, filtered);
       showToast('Retirada excluída do aparelho');
-      renderWithdrawalManagerResults(dateKey);
-      if(dateKey === todayKey()){
+      if(dk === todayKey()){
         refreshCaixaView();
         refreshRegisterDisplay();
         refreshCaixaSummary();
         refreshCaixaSessionView();
       }
       refreshReportsLive();
+      if(showDate) renderWithdrawalsWithoutCategory();
+      else renderWithdrawalManagerResults(dk);
     });
   });
 }
@@ -5324,6 +5374,8 @@ if(mgWithdrawalSearchBtn) mgWithdrawalSearchBtn.addEventListener('click', ()=>{
   if(dateEl && !dateEl.value) dateEl.value = dateKey;
   renderWithdrawalManagerResults(dateKey);
 });
+const mgWithdrawalNoCatBtn = document.getElementById('mgWithdrawalNoCatBtn');
+if(mgWithdrawalNoCatBtn) mgWithdrawalNoCatBtn.addEventListener('click', renderWithdrawalsWithoutCategory);
 
 document.getElementById('exportBackupFileBtn').addEventListener('click', exportBackupToFile);
 document.getElementById('importBackupFileBtn').addEventListener('click', ()=>{
