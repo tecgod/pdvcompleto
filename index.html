@@ -799,6 +799,13 @@
               </div>
               <div id="backupLog" class="helper-text" style="margin-top:14px; margin-bottom:0; white-space:pre-line;"></div>
             </div>
+
+            <div class="card card-pad" style="margin-top:20px;">
+              <div class="section-title"><h2>Diagnóstico e reparo de dados</h2></div>
+              <p class="helper-text" style="margin-top:0;">Verifica se alguma venda, retirada ou sessão de caixa ficou gravada de forma duplicada ou com data em formato inválido (o que pode inflar os totais nos relatórios) e corrige na hora. Não apaga nenhuma venda, retirada ou sessão real — só corrige a forma como estão guardadas.</p>
+              <button type="button" class="btn btn-ghost btn-block" id="repairDataBtn">🔧 Verificar e corrigir dados</button>
+              <div id="repairDataLog" class="helper-text" style="margin-top:14px; margin-bottom:0; white-space:pre-line;"></div>
+            </div>
           </div>
 
           <div class="card card-pad">
@@ -5378,6 +5385,193 @@ async function recalcClosedCashSessionsExpected(){
   }
 }
 
+/* ---------- Proteção permanente contra chaves de armazenamento "sujas" ----------
+   Diferente das limpezas antigas (que rodavam só uma vez, controladas por um
+   marcador que podia ficar "travado" e nunca mais disparar de novo), esta rotina
+   roda TODA VEZ que o app abre. Ela é barata: só faz o trabalho pesado (juntar
+   duplicatas por id e regravar) se realmente encontrar alguma chave fora do
+   formato esperado (ex: "sales:Fri Jul 03 2026 00:00:00 GMT-0300..." em vez de
+   "sales:2026-07-03"). Se estiver tudo certo, ela não mexe em nada.
+   Isso protege contra o mesmo tipo de bug reaparecer no futuro (por exemplo, se
+   uma função nova gravar usando uma data não normalizada como chave), sem
+   depender de eu lembrar de "resetar" um marcador manualmente. */
+const CLEAN_DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+async function repairKeyedStorage(prefix, saveFn){
+  const result = { prefix, dirtyKeysFound: [], repaired: false };
+  try{
+    const keys = await storageListKeys(prefix);
+    const dirty = keys.filter(k => !CLEAN_DATE_KEY_RE.test(k.slice(prefix.length)));
+    if(!dirty.length) return result;
+    result.dirtyKeysFound = dirty;
+
+    // Encontramos ao menos uma chave fora do padrão: refaz a consolidação
+    // completa deste prefixo (mesma lógica das limpezas anteriores), juntando
+    // por id (mantendo a versão mais completa/recente) e regravando cada
+    // registro na chave de data correta.
+    const byId = new Map();
+    const noId = [];
+    for(const k of keys){
+      const arr = await storageGet(k);
+      if(!Array.isArray(arr)) continue;
+      arr.forEach(o=>{
+        if(!o) return;
+        if(o.id){
+          const key = String(o.id);
+          const current = byId.get(key);
+          byId.set(key, current ? betterFlatRecord(current, o) : o);
+        } else {
+          noId.push(o);
+        }
+      });
+    }
+    const finalRecords = Array.from(byId.values()).concat(noId);
+    const byDate = {};
+    finalRecords.forEach(o=>{
+      const dk = canonicalRecordDate(o);
+      if(!byDate[dk]) byDate[dk] = [];
+      byDate[dk].push(o);
+    });
+    for(const dk of Object.keys(byDate)){
+      await saveFn(dk, byDate[dk]);
+    }
+    const validKeys = new Set(Object.keys(byDate).map(dk => prefix + dk));
+    for(const k of keys){
+      if(!validKeys.has(k)) await storageDeleteKey(k);
+    }
+    result.repaired = true;
+  }catch(e){
+    result.error = String(e);
+  }
+  return result;
+}
+
+async function repairCashSessionsStorage(){
+  const prefix = 'caixaSessions:';
+  const result = { prefix, dirtyKeysFound: [], repaired: false };
+  try{
+    const keys = await storageListKeys(prefix);
+    const dirty = keys.filter(k => !CLEAN_DATE_KEY_RE.test(k.slice(prefix.length)));
+    if(!dirty.length) return result;
+    result.dirtyKeysFound = dirty;
+
+    const byId = new Map();
+    const noId = [];
+    for(const k of keys){
+      const arr = await storageGet(k);
+      if(!Array.isArray(arr)) continue;
+      arr.forEach(s=>{
+        if(!s) return;
+        if(s.id){
+          const key = String(s.id);
+          const current = byId.get(key);
+          byId.set(key, current ? betterCashSessionRecord(current, s) : s);
+        } else {
+          noId.push(s);
+        }
+      });
+    }
+    const finalSessions = Array.from(byId.values()).concat(noId);
+    const byDate = {};
+    finalSessions.forEach(s=>{
+      const dk = cashSessionCanonicalDate(s) || todayKey();
+      if(!byDate[dk]) byDate[dk] = [];
+      byDate[dk].push(s);
+    });
+    Object.keys(byDate).forEach(dk=>{
+      byDate[dk].sort((a,b)=>cashSessionSortTime(a)-cashSessionSortTime(b));
+    });
+    for(const dk of Object.keys(byDate)){
+      await saveDayCashSessions(dk, byDate[dk]);
+    }
+    const validKeys = new Set(Object.keys(byDate).map(dk => prefix + dk));
+    for(const k of keys){
+      if(!validKeys.has(k)) await storageDeleteKey(k);
+    }
+    result.repaired = true;
+  }catch(e){
+    result.error = String(e);
+  }
+  return result;
+}
+
+async function runFullDataRepair(){
+  const salesResult = await repairKeyedStorage('sales:', saveDaySales);
+  const withdrawalsResult = await repairKeyedStorage('withdrawals:', saveDayWithdrawals);
+  const sessionsResult = await repairCashSessionsStorage();
+  const anyRepaired = salesResult.repaired || withdrawalsResult.repaired || sessionsResult.repaired;
+  if(anyRepaired){
+    // Se algo foi corrigido, os totais de fechamento de caixa podem ter mudado —
+    // recalcula os fechamentos já feitos com os dados corrigidos.
+    try{ await recalcAllClosedCashSessionsExpectedNow(); }catch(e){}
+  }
+  return { salesResult, withdrawalsResult, sessionsResult, anyRepaired };
+}
+
+// Versão do recálculo de fechamento que roda sob demanda (não depende do
+// marcador de execução única), usada pela proteção automática e pelo botão manual.
+async function recalcAllClosedCashSessionsExpectedNow(){
+  const keys = await storageListKeys('caixaSessions:');
+  for(const k of keys){
+    const dk = k.slice('caixaSessions:'.length);
+    const arr = await loadDayCashSessions(dk);
+    if(!Array.isArray(arr) || !arr.length) continue;
+    let changed = false;
+    for(let i=0; i<arr.length; i++){
+      const session = arr[i];
+      if(!session || session.status !== 'fechado') continue;
+      const summary = await getSessionCashSummary(session);
+      const newExpected = {};
+      const newDiff = {};
+      PAYMENT_METHODS.forEach(m => {
+        newExpected[m] = roundMoney(summary.expected[m] || 0);
+        const counted = roundMoney(Number((session.counted || {})[m]) || 0);
+        newDiff[m] = roundMoney(counted - newExpected[m]);
+      });
+      const newDiffTotal = roundMoney(Object.values(newDiff).reduce((a, n) => a + n, 0));
+      arr[i] = Object.assign({}, session, { expected: newExpected, diff: newDiff, diffTotal: newDiffTotal });
+      changed = true;
+    }
+    if(changed) await saveDayCashSessions(dk, arr);
+  }
+}
+
+function describeDirtyKeys(list){
+  if(!list.length) return '';
+  return list.map(k => '  • ' + k).join('\n');
+}
+
+async function runDataRepairFromButton(){
+  const btn = document.getElementById('repairDataBtn');
+  const log = document.getElementById('repairDataLog');
+  if(btn){ btn.disabled = true; btn.textContent = 'Verificando...'; }
+  if(log) log.textContent = 'Verificando vendas, retiradas e sessões de caixa...';
+  try{
+    const { salesResult, withdrawalsResult, sessionsResult, anyRepaired } = await runFullDataRepair();
+    if(!anyRepaired){
+      if(log) log.textContent = '✅ Nenhum problema encontrado. Seus dados estão organizados corretamente.';
+      showToast('Tudo certo, nenhum problema encontrado');
+    } else {
+      const lines = ['🔧 Correção aplicada:'];
+      if(salesResult.repaired) lines.push('Vendas: ' + salesResult.dirtyKeysFound.length + ' chave(s) corrigida(s)\n' + describeDirtyKeys(salesResult.dirtyKeysFound));
+      if(withdrawalsResult.repaired) lines.push('Retiradas: ' + withdrawalsResult.dirtyKeysFound.length + ' chave(s) corrigida(s)\n' + describeDirtyKeys(withdrawalsResult.dirtyKeysFound));
+      if(sessionsResult.repaired) lines.push('Sessões de caixa: ' + sessionsResult.dirtyKeysFound.length + ' chave(s) corrigida(s)\n' + describeDirtyKeys(sessionsResult.dirtyKeysFound));
+      lines.push('Os fechamentos de caixa já foram recalculados com os dados corrigidos.');
+      if(log) log.textContent = lines.join('\n');
+      showToast('Problema encontrado e corrigido com sucesso');
+      refreshCaixaSummary();
+      refreshReportsLive();
+      renderCaixaHistory();
+    }
+  }catch(e){
+    if(log) log.textContent = '❌ Erro ao verificar/corrigir: ' + String(e);
+    showToast('Erro ao verificar os dados');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '🔧 Verificar e corrigir dados'; }
+  }
+}
+document.getElementById('repairDataBtn').addEventListener('click', runDataRepairFromButton);
+
 /* ---------- Init ---------- */
 async function init(){
   await loadBranding();
@@ -5390,6 +5584,14 @@ async function init(){
   await consolidateWithdrawalsStorage();
   await consolidateCashSessionsStorage();
   await recalcClosedCashSessionsExpected();
+  // Proteção permanente: roda toda vez (não só uma vez) e só age se realmente
+  // encontrar alguma chave de armazenamento fora do padrão esperado.
+  try{
+    const autoRepair = await runFullDataRepair();
+    if(autoRepair.anyRepaired){
+      showToast('Encontramos e corrigimos um problema nos dados salvos');
+    }
+  }catch(e){}
   renderProductGrid();
   renderCart();
   await refreshRegisterDisplay();
