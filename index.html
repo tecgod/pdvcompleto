@@ -869,6 +869,16 @@ function parseFlexibleDate(str){
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : d;
 }
+// Zera segundos/milissegundos de uma data, para comparar horários de abertura/
+// fechamento de caixa (que têm segundos) com horários de vendas/retiradas (que só
+// têm hora e minuto) na mesma precisão — evita descartar por engano um registro
+// feito no mesmo minuto da abertura/fechamento só por causa dos segundos.
+function truncateToMinute(d){
+  if(!d) return null;
+  const t = new Date(d.getTime());
+  t.setSeconds(0, 0);
+  return t;
+}
 const MONTHS_BR = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 function formatDateBRFull(str){
   const d = parseFlexibleDate(str);
@@ -1912,8 +1922,15 @@ async function getSessionCashSummary(session){
   // está fechada. Sem isso, ao recalcular um caixa fechado esta função continuava
   // somando vendas/retiradas de sessões seguintes (inclusive a de hoje), o que
   // fazia o relatório de um caixa já fechado não bater com o relatório geral do dia.
-  const lowerDate = parseFlexibleDate(session.openedAt);
-  const upperDate = session.status === 'fechado' ? parseFlexibleDate(session.closedAt) : null;
+  //
+  // CORREÇÃO ADICIONAL: openedAt/closedAt são gravados com segundos (ex: "18:48:06"),
+  // mas o horário de cada venda/retirada só tem hora e minuto (ex: "18:48"), que aqui
+  // é interpretado como "18:48:00". Uma venda feita no MESMO MINUTO da abertura do
+  // caixa (bem comum) ficava com "segundo" 00, menor que o segundo real da abertura,
+  // e era descartada por engano — fazendo o fechamento aparecer zerado. Por isso
+  // arredondamos os dois lados (abertura/fechamento) para o minuto antes de comparar.
+  const lowerDate = truncateToMinute(parseFlexibleDate(session.openedAt));
+  const upperDate = session.status === 'fechado' ? truncateToMinute(parseFlexibleDate(session.closedAt)) : null;
   const lowerTime = lowerDate ? lowerDate.getTime() : null;
   const upperTime = upperDate ? upperDate.getTime() : null;
   const eventTime = (o) => {
@@ -1987,8 +2004,11 @@ async function getSessionMovementSummary(session){
   // texto e faziam TODO o período ser descartado — por isso o relatório saía zerado.
   // Agora usamos parseFlexibleDate (a mesma função que já trata datas sujas em outros
   // pontos do sistema) para comparar os timestamps de verdade, não o texto puro.
-  const lowerDate = parseFlexibleDate(session.openedAt);
-  const upperDate = session.status === 'fechado' ? parseFlexibleDate(session.closedAt) : null;
+  // CORREÇÃO ADICIONAL: arredondamos abertura/fechamento para o minuto (mesma
+  // precisão do horário das vendas/retiradas), pra uma venda no mesmo minuto da
+  // abertura não ser descartada por causa dos segundos. Veja truncateToMinute().
+  const lowerDate = truncateToMinute(parseFlexibleDate(session.openedAt));
+  const upperDate = session.status === 'fechado' ? truncateToMinute(parseFlexibleDate(session.closedAt)) : null;
   const lowerTime = lowerDate ? lowerDate.getTime() : null;
   const upperTime = upperDate ? upperDate.getTime() : null;
   const eventTime = (o) => {
@@ -5400,7 +5420,7 @@ installEnterFlow(document.getElementById('view-backup'), ['backupUrl'], ()=>docu
    recalcula expected/diff/diffTotal com a lógica corrigida, usando o
    "counted" (contagem real feita no fechamento, que não muda) já gravado.
    Sessões abertas não são tocadas. */
-const CAIXA_EXPECTED_RECALC_FLAG = 'caixaExpectedRecalcV4';
+const CAIXA_EXPECTED_RECALC_FLAG = 'caixaExpectedRecalcV5';
 
 async function recalcClosedCashSessionsExpected(){
   try{
