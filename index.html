@@ -410,6 +410,22 @@
               <label>Nome do cliente</label>
               <input type="text" id="customerNameInput" class="force-uppercase" placeholder="Nome do cliente">
             </div>
+            <div class="field-inline-btn" style="margin-bottom:10px;">
+              <label style="display:flex; align-items:center; gap:6px; font-weight:normal; margin:0;">
+                <input type="checkbox" id="saleBackdateToggle" style="width:auto;">
+                Lançamento retroativo (venda de outro dia/horário)
+              </label>
+            </div>
+            <div id="saleBackdateFields" style="display:none; gap:8px; margin-bottom:10px;" class="discount-row">
+              <div class="field">
+                <label>Data da venda</label>
+                <input type="date" id="saleBackdateDate">
+              </div>
+              <div class="field">
+                <label>Hora da venda</label>
+                <input type="time" id="saleBackdateTime">
+              </div>
+            </div>
             <div id="cartItems"></div>
             <div id="cartEmpty" class="empty-state" style="display:none; padding:30px 10px;">
               <div class="ee-icon">🟢</div>
@@ -508,6 +524,7 @@
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
               <button type="button" class="btn btn-primary" id="openCaixaBtn">🔓 Abrir caixa</button>
               <button type="button" class="btn btn-danger" id="closeCaixaBtn" style="display:none;">🔒 Fechar caixa</button>
+              <button type="button" class="btn btn-ghost" id="noMovementDayBtn">📅 Registrar dia sem movimentação</button>
             </div>
           </div>
         </div>
@@ -581,6 +598,22 @@
               <button type="button" class="pay-btn selected" data-withdrawal-pay="Dinheiro">Dinheiro</button>
               <button type="button" class="pay-btn" data-withdrawal-pay="Pix">Pix</button>
               <button type="button" class="pay-btn" data-withdrawal-pay="Débito">Débito</button>
+            </div>
+            <div class="field-inline-btn" style="margin-bottom:10px;">
+              <label style="display:flex; align-items:center; gap:6px; font-weight:normal; margin:0;">
+                <input type="checkbox" id="wBackdateToggle" style="width:auto;">
+                Lançamento retroativo (retirada de outro dia/horário)
+              </label>
+            </div>
+            <div id="wBackdateFields" style="display:none; gap:8px; margin-bottom:10px;" class="discount-row">
+              <div class="field">
+                <label>Data da retirada</label>
+                <input type="date" id="wBackdateDate">
+              </div>
+              <div class="field">
+                <label>Hora da retirada</label>
+                <input type="time" id="wBackdateTime">
+              </div>
             </div>
             <button class="btn btn-warn btn-block" id="addWithdrawalBtn">Registrar retirada</button>
           </div>
@@ -2158,6 +2191,121 @@ function diffClass(n){
   return 'diff-zero';
 }
 
+/* ---------- Registrar dia sem movimentação ----------
+   Para dias em que o caixa não chegou a ser aberto de verdade (loja fechada,
+   feriado, ou o dia anterior foi esquecido e ninguém abriu/fechou o caixa).
+   Em vez de deixar um "buraco" no histórico — o que também evita o caixa ficar
+   aberto atravessando vários dias sem movimento real, causa do bug de totais
+   zerados corrigido antes — isso cria diretamente uma sessão já FECHADA para
+   aquele dia, com o valor de abertura informado e nenhuma venda/retirada. */
+async function findLastKnownClosingCashAmount(beforeDateKey){
+  try{
+    const keys = await storageListKeys('caixaSessions:');
+    let candidates = [];
+    for(const k of keys){
+      const dk = k.slice('caixaSessions:'.length);
+      if(!CLEAN_DATE_KEY_RE.test(dk)) continue;
+      if(beforeDateKey && dk >= beforeDateKey) continue;
+      const arr = await loadDayCashSessions(dk);
+      (Array.isArray(arr)?arr:[]).forEach(s=>{
+        if(s && s.status === 'fechado') candidates.push(s);
+      });
+    }
+    candidates.sort((a,b)=>cashSessionSortTime(b)-cashSessionSortTime(a));
+    return candidates.length ? roundMoney(Number((candidates[0].counted||{}).Dinheiro) || 0) : 0;
+  }catch(e){
+    return 0;
+  }
+}
+
+async function createNoMovementDaySession(dateKey, openingAmount, notes){
+  const existing = await loadDayCashSessions(dateKey);
+  const hasSession = (Array.isArray(existing) ? existing : []).some(s => s && (s.status === 'aberto' || s.status === 'fechado'));
+  if(hasSession){
+    return { ok:false, reason:'Já existe um registro de caixa nessa data. Se quiser, apague o antigo primeiro em Backup → Gerenciar.' };
+  }
+  const amount = roundMoney(Number(openingAmount) || 0);
+  const expected = { Dinheiro: amount, Pix: 0, 'Débito': 0, 'Crédito': 0 };
+  const session = {
+    id: uid(), date: dateKey,
+    openedAt: `${dateKey} 00:00:01`,
+    openingAmount: amount,
+    openingNotes: notes || 'Dia sem movimentação',
+    status: 'fechado',
+    closedAt: `${dateKey} 23:59:00`,
+    expected: expected,
+    counted: Object.assign({}, expected),
+    diff: { Dinheiro: 0, Pix: 0, 'Débito': 0, 'Crédito': 0 },
+    diffTotal: 0,
+    closingNotes: notes || 'Dia sem movimentação (registro retroativo)',
+    updatedAt: nowStamp()
+  };
+  const arr = Array.isArray(existing) ? existing : [];
+  arr.push(session);
+  await saveDayCashSessions(dateKey, arr);
+  syncCashSessionIfAuto(session);
+  return { ok:true, session };
+}
+
+function openNoMovementDayModal(){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const yesterday = todayKey(new Date(Date.now() - 86400000));
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:480px;">
+      <h3>Registrar dia sem movimentação</h3>
+      <p class="helper-text" style="margin-top:-8px;">Use isso para um dia em que a loja não abriu, ou que o caixa foi esquecido e não chegou a ser aberto/fechado. Isso cria um registro de caixa já fechado para aquele dia, sem nenhuma venda ou retirada.</p>
+      <div class="field">
+        <label>Data</label>
+        <input type="date" id="nmdDate" value="${yesterday}">
+      </div>
+      <div class="field">
+        <label>Valor em dinheiro que ficou no caixa nesse dia (R$)</label>
+        <input type="number" id="nmdAmount" step="0.01" min="0" value="0">
+      </div>
+      <p class="helper-text" id="nmdSuggestion" style="margin-top:-8px;"></p>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn btn-ghost" id="nmdCancel" style="flex:1;">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="nmdConfirm" style="flex:1;">Registrar dia</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
+  overlay.querySelector('#nmdCancel').addEventListener('click', close);
+
+  const dateInput = overlay.querySelector('#nmdDate');
+  const amountInput = overlay.querySelector('#nmdAmount');
+  const suggestionEl = overlay.querySelector('#nmdSuggestion');
+
+  const updateSuggestion = async () => {
+    const dk = dateInput.value || yesterday;
+    const suggested = await findLastKnownClosingCashAmount(dk);
+    suggestionEl.textContent = `Sugestão: o último caixa fechado antes dessa data terminou com R$ ${suggested.toFixed(2)} em dinheiro. Ajuste se necessário.`;
+    if(!amountInput.dataset.touched) amountInput.value = suggested.toFixed(2);
+  };
+  amountInput.addEventListener('input', () => { amountInput.dataset.touched = '1'; });
+  dateInput.addEventListener('change', updateSuggestion);
+  updateSuggestion();
+
+  overlay.querySelector('#nmdConfirm').addEventListener('click', async () => {
+    const dk = dateInput.value;
+    if(!dk){ showToast('Selecione uma data'); return; }
+    if(dk >= todayKey()){ showToast('Use uma data anterior a hoje'); return; }
+    const amount = parseFloat(amountInput.value);
+    if(isNaN(amount) || amount < 0){ showToast('Informe um valor válido'); return; }
+    if(!confirm(`Registrar ${formatDateBR(dk)} como dia sem movimentação, com R$ ${amount.toFixed(2)} em caixa? Isso não pode ser desfeito por aqui depois.`)) return;
+    const result = await createNoMovementDaySession(dk, amount);
+    if(!result.ok){ showToast(result.reason); return; }
+    showToast('Dia registrado sem movimentação');
+    close();
+    renderCaixaHistory();
+    refreshCaixaSessionView();
+  });
+}
+const noMovementDayBtn = document.getElementById('noMovementDayBtn');
+if(noMovementDayBtn) noMovementDayBtn.addEventListener('click', openNoMovementDayModal);
+
 async function refreshCaixaSessionView(){
   const infoEl = document.getElementById('caixaSessionInfo');
   const openBtn = document.getElementById('openCaixaBtn');
@@ -3192,6 +3340,27 @@ function resetSaleType(){
   document.getElementById('customerNameInput').value = '';
 }
 
+const saleBackdateToggle = document.getElementById('saleBackdateToggle');
+const saleBackdateFields = document.getElementById('saleBackdateFields');
+if(saleBackdateToggle) saleBackdateToggle.addEventListener('change', ()=>{
+  if(saleBackdateToggle.checked){
+    saleBackdateFields.style.display = 'flex';
+    const dateEl = document.getElementById('saleBackdateDate');
+    const timeEl = document.getElementById('saleBackdateTime');
+    if(!dateEl.value) dateEl.value = todayKey();
+    if(!timeEl.value) timeEl.value = nowTime();
+  } else {
+    saleBackdateFields.style.display = 'none';
+  }
+});
+function resetSaleBackdate(){
+  if(!saleBackdateToggle) return;
+  saleBackdateToggle.checked = false;
+  saleBackdateFields.style.display = 'none';
+  document.getElementById('saleBackdateDate').value = '';
+  document.getElementById('saleBackdateTime').value = '';
+}
+
 document.getElementById('finalizeSaleBtn').addEventListener('click', async ()=>{
   if(cart.length===0) return;
   const openSession = await getOpenCashSession();
@@ -3223,11 +3392,35 @@ document.getElementById('finalizeSaleBtn').addEventListener('click', async ()=>{
   }
   const btn = document.getElementById('finalizeSaleBtn');
   btn.disabled = true; btn.textContent = 'Registrando...';
-  const dk = todayKey();
+  let dk = todayKey();
+  let saleTime = nowTime();
+  if(saleBackdateToggle && saleBackdateToggle.checked){
+    const bDate = document.getElementById('saleBackdateDate').value;
+    const bTime = document.getElementById('saleBackdateTime').value;
+    if(!bDate || !bTime){
+      showToast('Informe a data e a hora do lançamento retroativo');
+      btn.disabled = false; btn.textContent = 'Finalizar venda';
+      return;
+    }
+    const chosen = parseFlexibleDate(`${bDate} ${bTime}:00`);
+    const openedAt = truncateToMinute(parseFlexibleDate(openSession.openedAt));
+    if(chosen && openedAt && chosen.getTime() < openedAt.getTime()){
+      showToast('Essa data/hora é anterior à abertura do caixa atual');
+      btn.disabled = false; btn.textContent = 'Finalizar venda';
+      return;
+    }
+    if(chosen && chosen.getTime() > Date.now()){
+      showToast('Essa data/hora ainda não chegou');
+      btn.disabled = false; btn.textContent = 'Finalizar venda';
+      return;
+    }
+    dk = bDate;
+    saleTime = bTime;
+  }
   const sale = {
     id: uid(),
     date: dk,
-    time: nowTime(),
+    time: saleTime,
     saleType,
     customerName: saleType==='cliente' ? customerName.trim() : '',
     items: cart.map(c=>({productId:c.productId, name:c.name, code:c.code||'', price:c.price, qty:c.qty})),
@@ -3253,6 +3446,7 @@ document.getElementById('finalizeSaleBtn').addEventListener('click', async ()=>{
   cart = [];
   resetDiscount();
   resetSaleType();
+  resetSaleBackdate();
   resetPaymentFlow();
   renderCart();
   renderProductGrid();
@@ -3788,6 +3982,27 @@ if(wNewCategoryBtn) wNewCategoryBtn.addEventListener('click', async ()=>{
   showToast('Categoria cadastrada');
 });
 
+const wBackdateToggle = document.getElementById('wBackdateToggle');
+const wBackdateFields = document.getElementById('wBackdateFields');
+if(wBackdateToggle) wBackdateToggle.addEventListener('change', ()=>{
+  if(wBackdateToggle.checked){
+    wBackdateFields.style.display = 'flex';
+    const dateEl = document.getElementById('wBackdateDate');
+    const timeEl = document.getElementById('wBackdateTime');
+    if(!dateEl.value) dateEl.value = todayKey();
+    if(!timeEl.value) timeEl.value = nowTime();
+  } else {
+    wBackdateFields.style.display = 'none';
+  }
+});
+function resetWithdrawalBackdate(){
+  if(!wBackdateToggle) return;
+  wBackdateToggle.checked = false;
+  wBackdateFields.style.display = 'none';
+  document.getElementById('wBackdateDate').value = '';
+  document.getElementById('wBackdateTime').value = '';
+}
+
 document.getElementById('addWithdrawalBtn').addEventListener('click', async ()=>{
   const openSessionForWithdrawal = await getOpenCashSession();
   if(!openSessionForWithdrawal){
@@ -3803,14 +4018,33 @@ document.getElementById('addWithdrawalBtn').addEventListener('click', async ()=>
   if(isNaN(amount) || amount <= 0){ showToast('Informe um valor válido'); return; }
   if(!description){ showToast('Informe a descrição da retirada'); document.getElementById('wDesc').focus(); return; }
   if(!category){ showToast('Selecione a categoria da retirada'); if(categoryEl) categoryEl.focus(); return; }
-  const dk = todayKey();
+  let dk = todayKey();
+  let wTime = nowTime();
+  if(wBackdateToggle && wBackdateToggle.checked){
+    const bDate = document.getElementById('wBackdateDate').value;
+    const bTime = document.getElementById('wBackdateTime').value;
+    if(!bDate || !bTime){ showToast('Informe a data e a hora do lançamento retroativo'); return; }
+    const chosen = parseFlexibleDate(`${bDate} ${bTime}:00`);
+    const openedAt = truncateToMinute(parseFlexibleDate(openSessionForWithdrawal.openedAt));
+    if(chosen && openedAt && chosen.getTime() < openedAt.getTime()){
+      showToast('Essa data/hora é anterior à abertura do caixa atual');
+      return;
+    }
+    if(chosen && chosen.getTime() > Date.now()){
+      showToast('Essa data/hora ainda não chegou');
+      return;
+    }
+    dk = bDate;
+    wTime = bTime;
+  }
   const arrRaw = await loadDayWithdrawals(dk);
   const arr = Array.isArray(arrRaw) ? arrRaw : [];
-  const withdrawal = {id: uid(), date: dk, time: nowTime(), amount, description, category, payment: selectedWithdrawalPayment, updatedAt: nowStamp()};
+  const withdrawal = {id: uid(), date: dk, time: wTime, amount, description, category, payment: selectedWithdrawalPayment, updatedAt: nowStamp()};
   arr.push(withdrawal);
   await saveDayWithdrawals(dk, arr);
   document.getElementById('wAmount').value='';
   document.getElementById('wDesc').value='';
+  resetWithdrawalBackdate();
   renderWithdrawalCategoryOptions(categoryEl, '');
   const withdrawalPaymentLabel = selectedWithdrawalPayment;
   selectedWithdrawalPayment = 'Dinheiro';
