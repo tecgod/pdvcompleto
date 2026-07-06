@@ -918,6 +918,14 @@ function formatDateBRFull(str){
   if(!d) return '—';
   return `${d.getDate()} de ${MONTHS_BR[d.getMonth()]} de ${d.getFullYear()}`;
 }
+// Mesmo padrão numérico (dd/mm/aaaa) usado no resto do sistema, mas aceitando
+// qualquer formato de entrada (inclusive datas "sujas") via parseFlexibleDate —
+// ao contrário de displayDateBR/formatDateBR, que exigem exatamente "aaaa-mm-dd".
+function formatDateBRNumeric(str){
+  const d = parseFlexibleDate(str);
+  if(!d) return '—';
+  return `${pad2(d.getDate())}/${pad2(d.getMonth()+1)}/${d.getFullYear()}`;
+}
 function formatTimeBRShort(str){
   const d = parseFlexibleDate(str);
   if(!d) return '—';
@@ -1207,9 +1215,15 @@ function betterCashSessionRecord(a, b){
   const statusScore = s => (s && s.status === 'fechado') ? 1 : 0;
   const sa = statusScore(a), sb = statusScore(b);
   if(sb !== sa) return sb > sa ? b : a;
-  const ta = String((a && a.updatedAt) || '');
-  const tb = String((b && b.updatedAt) || '');
-  return tb > ta ? b : a;
+  // CORREÇÃO: updatedAt em registros antigos pode estar em formato "sujo" (Date
+  // serializado), onde comparar como texto puro não reflete a ordem cronológica
+  // real (ex: "Fri..." vs "Thu..." não ordena por data). Usamos parseFlexibleDate.
+  const ta = parseFlexibleDate(a && a.updatedAt);
+  const tb = parseFlexibleDate(b && b.updatedAt);
+  if(ta && tb) return tb.getTime() > ta.getTime() ? b : a;
+  if(tb && !ta) return b;
+  if(ta && !tb) return a;
+  return b;
 }
 
 async function consolidateCashSessionsStorage(){
@@ -1291,9 +1305,14 @@ function betterFlatRecord(a, b){
   const ca = (a && a.canceled) ? 1 : 0;
   const cb = (b && b.canceled) ? 1 : 0;
   if(cb !== ca) return cb > ca ? b : a;
-  const ta = String((a && a.updatedAt) || '');
-  const tb = String((b && b.updatedAt) || '');
-  return tb > ta ? b : a;
+  // CORREÇÃO: mesmo problema de betterCashSessionRecord — comparar updatedAt
+  // como texto puro falha quando o formato é "sujo" (Date serializado antigo).
+  const ta = parseFlexibleDate(a && a.updatedAt);
+  const tb = parseFlexibleDate(b && b.updatedAt);
+  if(ta && tb) return tb.getTime() > ta.getTime() ? b : a;
+  if(tb && !ta) return b;
+  if(ta && !tb) return a;
+  return b;
 }
 function canonicalRecordDate(o){
   const d = parseFlexibleDate(o && o.date);
@@ -1919,11 +1938,29 @@ function cashSessionDateKeys(session){
 }
 
 async function getOpenCashSession(){
-  const dates = [todayKey(), todayKey(new Date(Date.now() - 86400000))];
-  for(const dk of dates){
-    const arr = await loadDayCashSessions(dk);
-    const open = (arr || []).find(s => s.status === 'aberto');
-    if(open) return open;
+  // CORREÇÃO: antes só olhávamos hoje e ontem — um caixa aberto há mais de 1 dia
+  // (ex: aberto na sexta e esquecido até segunda) deixava de ser encontrado, o
+  // que permitiria abrir um SEGUNDO caixa por cima do primeiro, ainda aberto,
+  // corrompendo os dados. Agora olhamos todos os baldes de sessão de caixa,
+  // começando pelos mais recentes (é onde uma sessão aberta normalmente está).
+  try{
+    const keys = await storageListKeys('caixaSessions:');
+    const cleanKeys = keys.filter(k => CLEAN_DATE_KEY_RE.test(k.slice('caixaSessions:'.length)));
+    cleanKeys.sort().reverse();
+    for(const k of cleanKeys){
+      const arr = await storageGet(k);
+      const open = (Array.isArray(arr) ? arr : []).find(s => s && s.status === 'aberto');
+      if(open) return open;
+    }
+  }catch(e){
+    // Se algo falhar aqui (ex: storageListKeys indisponível), cai no método antigo
+    // como último recurso, para não travar a abertura/uso normal do caixa.
+    const dates = [todayKey(), todayKey(new Date(Date.now() - 86400000))];
+    for(const dk of dates){
+      const arr = await loadDayCashSessions(dk);
+      const open = (arr || []).find(s => s.status === 'aberto');
+      if(open) return open;
+    }
   }
   return null;
 }
@@ -2176,10 +2213,14 @@ async function closeCashSession(session, countedByMethod, notes){
   updated.diffTotal = roundMoney(Object.values(updated.diff).reduce((a, n) => a + n, 0));
   updated.closingNotes = notes || '';
   updated.updatedAt = nowStamp();
-  const arr = await loadDayCashSessions(updated.date);
+  // CORREÇÃO: usar updated.date bruto como chave (igual a outros bugs já
+  // corrigidos) recriava um balde "sujo" ao fechar sessões antigas cujo campo
+  // date ficou gravado em formato de Date serializado. Normalizamos aqui também.
+  const dk = cashSessionCanonicalDate(updated) || todayKey();
+  const arr = await loadDayCashSessions(dk);
   const idx = arr.findIndex(s => String(s.id) === String(updated.id));
   if(idx >= 0) arr[idx] = updated; else arr.push(updated);
-  await saveDayCashSessions(updated.date, arr);
+  await saveDayCashSessions(dk, arr);
   syncCashSessionIfAuto(updated);
   return updated;
 }
@@ -2223,6 +2264,17 @@ async function createNoMovementDaySession(dateKey, openingAmount, notes){
   const hasSession = (Array.isArray(existing) ? existing : []).some(s => s && (s.status === 'aberto' || s.status === 'fechado'));
   if(hasSession){
     return { ok:false, reason:'Já existe um registro de caixa nessa data. Se quiser, apague o antigo primeiro em Backup → Gerenciar.' };
+  }
+  // CORREÇÃO: se já existir um caixa ABERTO (de outro dia) cujo período ainda em
+  // andamento abrange essa data (ex: aberto há 3 dias e nunca fechado), criar um
+  // registro "sem movimentação" aqui geraria um card duplicado/conflitante para o
+  // mesmo dia — o caixa aberto de verdade já cobre essa data.
+  const openSession = await getOpenCashSession();
+  if(openSession){
+    const openSpan = cashSessionDateKeysFull(openSession).filter(k => CLEAN_DATE_KEY_RE.test(k));
+    if(openSpan.includes(dateKey)){
+      return { ok:false, reason:'Essa data já está dentro do período de um caixa em aberto (ainda não fechado). Feche esse caixa normalmente em vez de registrar o dia como sem movimentação.' };
+    }
   }
   const amount = roundMoney(Number(openingAmount) || 0);
   const expected = { Dinheiro: amount, Pix: 0, 'Débito': 0, 'Crédito': 0 };
@@ -2384,9 +2436,19 @@ async function renderCaixaHistory(){
     const totalEsperado = isFechado ? Object.values(s.expected || {}).reduce((a,n)=>a+(Number(n)||0),0) : 0;
     const totalContado = isFechado ? Object.values(s.counted || {}).reduce((a,n)=>a+(Number(n)||0),0) : 0;
     const diffTotal = s.diffTotal || 0;
-    const openLine = `Aberto às <b>${escapeHtml(formatTimeBRShort(s.openedAt))}</b> · Valor de abertura: <b>${fmt(s.openingAmount)}</b>`;
+    // CORREÇÃO: antes só mostrávamos a data uma vez no topo do card (a data de
+    // abertura) e, embaixo, só a HORA do fechamento — sem a data. Isso dava a
+    // falsa impressão de que abertura e fechamento foram no mesmo dia, mesmo
+    // quando o caixa ficou aberto atravessando um ou mais dias (ex: aberto
+    // sábado de manhã, fechado só domingo à noite). Agora mostramos a data
+    // completa em cada linha sempre que ela for diferente da data de abertura.
+    const openedDateFull = formatDateBRNumeric(s.openedAt) || formatDateBRNumeric(s.date);
+    const closedDateFull = isFechado ? formatDateBRNumeric(s.closedAt) : '';
+    const openLine = `Aberto em <b>${escapeHtml(openedDateFull)}</b> às <b>${escapeHtml(formatTimeBRShort(s.openedAt))}</b> · Valor de abertura: <b>${fmt(s.openingAmount)}</b>`;
     const closeLine = isFechado
-      ? `Fechado às <b>${escapeHtml(formatTimeBRShort(s.closedAt))}</b>`
+      ? (closedDateFull && closedDateFull !== openedDateFull
+          ? `Fechado em <b>${escapeHtml(closedDateFull)}</b> às <b>${escapeHtml(formatTimeBRShort(s.closedAt))}</b>`
+          : `Fechado às <b>${escapeHtml(formatTimeBRShort(s.closedAt))}</b>`)
       : 'Ainda não foi fechado';
     const resultHtml = isFechado ? `
       <div class="caixa-history-result">
@@ -2397,7 +2459,7 @@ async function renderCaixaHistory(){
     const sessionIdAttr = s.id ? escapeHtml(String(s.id)) : '';
     return `<div class="caixa-history-card" ${sessionIdAttr ? `data-session-id="${sessionIdAttr}" tabindex="0" role="button" aria-label="Ver movimento do dia"` : ''}>
       <div>
-        <div class="caixa-history-date">${escapeHtml(formatDateBRFull(s.date))}</div>
+        <div class="caixa-history-date">${escapeHtml(openedDateFull)}</div>
         <div class="caixa-history-times">
           <span>${openLine}</span>
           <span>${closeLine}</span>
