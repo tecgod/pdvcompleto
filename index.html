@@ -1965,6 +1965,25 @@ function cashSessionDateKeysFull(session){
   if(session.date) keys.add(session.date);
   const openedDate = parseFlexibleDate(session.openedAt);
   if(openedDate) keys.add(todayKey(openedDate));
+  // CORREÇÃO: um caixa pode ficar aberto por mais de um dia (ex: aberto no dia 04
+  // e só fechado dias depois). Antes, só olhávamos o dia da abertura e o do
+  // fechamento — as vendas feitas nos dias "no meio" (ou depois da abertura, com
+  // o caixa ainda aberto até hoje) ficavam em baldes que nunca eram consultados,
+  // fazendo o fechamento aparecer zerado. Agora incluímos TODOS os dias entre a
+  // abertura e o fechamento (ou até hoje, se ainda estiver aberto).
+  const endDate = session.status === 'fechado'
+    ? (parseFlexibleDate(session.closedAt) || new Date())
+    : new Date();
+  if(openedDate && endDate){
+    const cursor = new Date(openedDate.getFullYear(), openedDate.getMonth(), openedDate.getDate());
+    const last = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    let guard = 0;
+    while(cursor.getTime() <= last.getTime() && guard < 366){
+      keys.add(todayKey(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+      guard++;
+    }
+  }
   const closedDate = parseFlexibleDate(session.closedAt);
   if(closedDate) keys.add(todayKey(closedDate));
   if(!keys.size) keys.add(todayKey());
@@ -5420,7 +5439,7 @@ installEnterFlow(document.getElementById('view-backup'), ['backupUrl'], ()=>docu
    recalcula expected/diff/diffTotal com a lógica corrigida, usando o
    "counted" (contagem real feita no fechamento, que não muda) já gravado.
    Sessões abertas não são tocadas. */
-const CAIXA_EXPECTED_RECALC_FLAG = 'caixaExpectedRecalcV5';
+const CAIXA_EXPECTED_RECALC_FLAG = 'caixaExpectedRecalcV6';
 
 async function recalcClosedCashSessionsExpected(){
   try{
